@@ -383,7 +383,8 @@ export async function PATCH(request: Request) {
     const recurringArgs = body.action === 'undo' ? { p_recurring_id: payment.id } : { p_recurring_id: payment.id, p_payment_date: body.date };
     const { error: atomicRecurringError } = await supabase.rpc(recurringRpc, recurringArgs);
     if (!atomicRecurringError) return Response.json(await getDashboard(authorization));
-    if (atomicRecurringError.code !== 'PGRST202') throw atomicRecurringError;
+    if (/insufficient funds/i.test(atomicRecurringError.message)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
+    console.warn('Recurring RPC unavailable; using the compatible transaction flow.', { code: atomicRecurringError.code, message: atomicRecurringError.message });
     if (body.action === 'undo') {
       let latestQuery = supabase.from('transactions').select('id').eq('type', flowType).eq('description', payment.name).eq('amount_cents', payment.amount_cents);
       latestQuery = flowType === 'income' ? latestQuery.eq('to_account_id', payment.pay_from_account_id) : latestQuery.eq('from_account_id', payment.pay_from_account_id);
