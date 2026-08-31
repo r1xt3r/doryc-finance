@@ -1,0 +1,720 @@
+'use client';
+
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { animate, stagger } from 'animejs';
+import { createClient } from '../lib/supabase/client';
+import LogoMark from './components/LogoMark';
+import DashboardSidebar, { type DashboardView } from './components/DashboardSidebar';
+import { estimateCardPayment, nextMonthlyDate } from '../lib/finance';
+
+type Account = { id: string; name: string; bank: string; accountType: string; startingBalance: number; balance: number };
+type Transaction = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount: number; date: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; debtMovement?: boolean };
+type Recurring = { id: string; name: string; amount: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: number };
+type CreditCard = { id: string; name: string; bank: string; creditLimit: number; openingUsed: number; currentStatement: number; annualRate: number; paymentDay: number | null; statementDay: number | null; network: string; payFromAccountId: string | null };
+type CardPurchase = { id: string; creditCardId: string; description: string; amount: number; date: string; category: string | null; installmentMonths: number; installmentsPaid: number; withInterest: boolean };
+type CardPayment = { id: string; creditCardId: string; fromAccountId: string; amount: number; date: string; note: string | null };
+type PersonalLoan = { id: string; direction: 'i_owe' | 'owed_to_me'; personName: string; amount: number; paid: number; accountId: string | null; dueDate: string | null; note: string | null; status: string };
+type PersonalLoanPayment = { id: string; personalLoanId: string; accountId: string; amount: number; date: string; entryType: 'payment' | 'advance' };
+type BankLoan = { id: string; bank: string; name: string; originalAmount: number; outstandingBalance: number; installment: number; nextDueDate: string; paymentDay: number; totalInstallments: number; paidInstallments: number; annualRate: number | null; payFromAccountId: string | null };
+type DashboardData = { name: string; accounts: Account[]; transactions: Transaction[]; recurring: Recurring[]; creditCards: CreditCard[]; cardPurchases: CardPurchase[]; cardPayments: CardPayment[]; personalLoans: PersonalLoan[]; personalLoanPayments: PersonalLoanPayment[]; bankLoans: BankLoan[]; onboardingCompleted: boolean; income: number; spent: number };
+type ActionType = 'Expense' | 'Income' | 'Transfer' | 'Recurring';
+
+function PencilIcon() { return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>; }
+function TrashIcon() { return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 0 1 15h8l1-15M10 10v7m4-7v7"/></svg>; }
+function ChevronIcon({ open = false }: { open?: boolean }) { return <svg className={open ? 'open' : ''} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>; }
+function PiggyBankIcon() { return <svg className="piggy-bank-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5.3 10.1A6.8 6.8 0 0 1 12 5.5h2.2l2.4-1.8.5 3a6.1 6.1 0 0 1 1.5 2.1H21v4h-2.2a6.8 6.8 0 0 1-2.4 3l.1 2.5h-3l-.5-1.6H9.2l-.7 1.6h-3l.5-3A6.4 6.4 0 0 1 4 11.1"/><path d="M9.5 5.9c.5-1.1 1.6-1.8 3-1.8M13.4 8.5h2.4"/><circle cx="15.6" cy="9.8" r=".6" fill="currentColor" stroke="none"/><path d="M4 11.2c-1.2 0-1.8-.6-1.8-1.4 0-.6.4-1 1-1"/></svg>; }
+
+const initialData: DashboardData = {
+  name: 'Richard', income: 0, spent: 0, transactions: [], creditCards: [], cardPurchases: [], cardPayments: [], personalLoans: [], personalLoanPayments: [], bankLoans: [], onboardingCompleted: true,
+  accounts: [],
+  recurring: [],
+};
+
+const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+const shortDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
+
+async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const { data: { session } } = await createClient().auth.getSession();
+  const headers = new Headers(init.headers);
+  const accessToken = session?.access_token || window.sessionStorage.getItem('doryc_access_token') || window.sessionStorage.getItem('moro_access_token');
+  if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
+  const controller = init.signal ? null : new AbortController();
+  const timeout = controller ? window.setTimeout(() => controller.abort(), 20_000) : null;
+  try {
+    const response = await fetch(input, { ...init, headers, signal: init.signal || controller?.signal });
+    if (response.status === 401) {
+      window.sessionStorage.removeItem('doryc_access_token');
+      window.sessionStorage.removeItem('moro_access_token');
+    }
+    return response;
+  } finally {
+    if (timeout) window.clearTimeout(timeout);
+  }
+}
+
+export default function Home() {
+  const root = useRef<HTMLElement>(null);
+  const [currentTime, setCurrentTime] = useState(() => new Date());
+  const [activeView, setActiveView] = useState<DashboardView>('overview');
+  const today = useMemo(() => {
+    const now = new Date();
+    return new Date(now.getTime() - now.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+  }, []);
+  const [data, setData] = useState(initialData);
+  const [activeAction, setActiveAction] = useState<ActionType | null>(null);
+  const [toast, setToast] = useState('');
+  const [celebrationKey, setCelebrationKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [error, setError] = useState('');
+  const [showAllUpcoming, setShowAllUpcoming] = useState(false);
+  const [showAllActivity, setShowAllActivity] = useState(false);
+  const [showFundingPlan, setShowFundingPlan] = useState(false);
+  const [expandedFundingAccount, setExpandedFundingAccount] = useState<string | null>(null);
+  const [expandedLoanId, setExpandedLoanId] = useState<string | null>(null);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [payingRecurringId, setPayingRecurringId] = useState<string | null>(null);
+  const [cardModal, setCardModal] = useState<'account' | 'card' | 'purchase' | 'statement' | 'loan' | 'cardPayment' | 'loanPayment' | 'loanIncrease' | 'bankLoan' | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState('');
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setCurrentTime(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const views: DashboardView[] = ['overview', 'accounts', 'payments', 'credit', 'people', 'activity'];
+    const syncView = () => {
+      const requested = window.location.hash.slice(1) as DashboardView;
+      if (views.includes(requested)) setActiveView(requested);
+    };
+    syncView();
+    window.addEventListener('popstate', syncView);
+    return () => window.removeEventListener('popstate', syncView);
+  }, []);
+
+  useEffect(() => {
+    authenticatedFetch('/api/dashboard', { cache: 'no-store' })
+      .then(async (response) => {
+        if (response.status === 401) {
+          window.location.assign('/login');
+          return null;
+        }
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.error || 'Unable to load data.');
+        return payload;
+      })
+      .then((payload) => { if (payload) { setData(payload); setShowOnboarding(!payload.onboardingCompleted && window.localStorage.getItem('doryc_setup_dismissed') !== 'true'); } })
+      .catch(() => setError('We could not connect to your financial data. Check your connection and try again.'))
+      .finally(() => setLoading(false));
+  }, [loadAttempt]);
+
+  useEffect(() => {
+    if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const heading = root.current.querySelector<HTMLElement>('.topbar h1');
+    const sidebar = root.current.querySelector<HTMLElement>('.sidebar');
+    const brandMark = root.current.querySelector<HTMLElement>('.brand-mark');
+    if (!heading || !sidebar || !brandMark) return;
+    const animations = [
+      animate(sidebar, { opacity: [0, 1], x: [-22, 0], duration: 720, ease: 'outExpo' }),
+      animate(root.current.querySelectorAll('.topbar,.quick-actions'), { opacity: [0, 1], duration: 180, ease: 'linear' }),
+      animate(root.current.querySelectorAll('.topbar .eyebrow,.topbar .icon-button'), { opacity: [0, 1], y: [-10, 0], delay: stagger(90), duration: 520, ease: 'outCubic' }),
+      animate(heading, { opacity: [0, 1], y: [22, 0], scale: [.97, 1], duration: 760, ease: 'outExpo' }),
+      animate(heading.querySelectorAll('.greeting-word'), { opacity: [0, 1], y: [18, 0], rotate: [-2, 0], delay: stagger(130, { start: 90 }), duration: 820, ease: 'outElastic(1, .65)' }),
+      animate(heading.querySelectorAll('.greeting-name'), { color: [{ to: '#ffffff' }, { to: '#bdf477' }, { to: '#ffffff' }], textShadow: [{ to: '0 0 0 rgba(189,244,119,0)' }, { to: '0 0 18px rgba(189,244,119,.34)' }, { to: '0 0 0 rgba(189,244,119,0)' }], duration: 2800, loop: true, loopDelay: 1400, ease: 'inOutSine' }),
+      animate(root.current.querySelectorAll('.hero-grid article'), { opacity: [0, 1], y: [28, 0], scale: [.97, 1], delay: stagger(120, { start: 180 }), duration: 760, ease: 'outExpo' }),
+      animate(root.current.querySelectorAll('.quick-actions button'), { opacity: [0, 1], y: [20, 0], delay: stagger(70, { start: 360 }), duration: 620, ease: 'outExpo' }),
+      animate(brandMark, { scale: [{ to: 1.07, duration: 480 }, { to: 1, duration: 720 }], loop: true, loopDelay: 2600, ease: 'inOut(3)' }),
+      animate(heading, { filter: [{ to: 'drop-shadow(0 0 0 rgba(189,244,119,0))' }, { to: 'drop-shadow(0 4px 13px rgba(189,244,119,.22))' }, { to: 'drop-shadow(0 0 0 rgba(189,244,119,0))' }], duration: 2600, loop: true, loopDelay: 1200, ease: 'inOutSine' }),
+    ];
+    return () => {
+      animations.forEach((animation) => animation.revert());
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const elements = [...root.current.querySelectorAll<HTMLElement>('.savings-panel,.cards-panel,.loans-panel,.activity-panel,.content-grid .panel')];
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting || (entry.target as HTMLElement).dataset.revealed) return;
+        const element = entry.target as HTMLElement;
+        element.dataset.revealed = 'true';
+        animate(element, {
+          y: [48, 0],
+          scale: [.985, 1],
+          filter: ['blur(7px)', 'blur(0px)'],
+          duration: 920,
+          ease: 'outExpo',
+        });
+        observer.unobserve(element);
+      });
+    }, { threshold: .1, rootMargin: '0px 0px -70px 0px' });
+    elements.forEach((element) => observer.observe(element));
+    return () => {
+      observer.disconnect();
+      elements.forEach((element) => {
+        element.style.opacity = '1';
+        element.style.transform = 'none';
+        element.style.filter = 'none';
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const visible = root.current.querySelectorAll<HTMLElement>('.dashboard>section:not([hidden]),.dashboard>header');
+    const transition = animate(visible, { opacity: [0, 1], y: [15, 0], delay: stagger(55), duration: 520, ease: 'outExpo' });
+    return () => { transition.revert(); };
+  }, [activeView]);
+
+  useEffect(() => {
+    if (!activeAction && !showFundingPlan && !cardModal) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || saving) return;
+      setActiveAction(null);
+      setShowFundingPlan(false);
+      setCardModal(null);
+      setEditingTransaction(null);
+      setSelectedAccountId('');
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    animate('.modal-card', { opacity: [0, 1], scale: [.96, 1], y: [18, 0], duration: 460, ease: 'outExpo' });
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', closeOnEscape); };
+  }, [activeAction, showFundingPlan, cardModal, saving]);
+
+  const availableAccounts = data.accounts.filter((account) => account.name !== 'Produbanco Savings');
+  const totalBalance = availableAccounts.reduce((sum, account) => sum + account.balance, 0);
+  const activity = showAllActivity ? data.transactions : data.transactions.slice(0, 5);
+  const allUpcoming = data.recurring.filter((item) => !item.paid_this_cycle);
+  const paidThisCycle = data.recurring.filter((item) => item.paid_this_cycle);
+  const upcoming = showAllUpcoming ? allUpcoming : allUpcoming.slice(0, 3);
+  const accountMap = useMemo(() => new Map(data.accounts.map((account) => [account.id, account.name])), [data.accounts]);
+  const pichinchaCheckingId = data.accounts.find((account) => account.bank === 'Pichincha' && account.accountType.toLowerCase() === 'checking')?.id || '';
+  const bankLoanAccountId = (loan: BankLoan) => loan.bank === 'Pichincha' && pichinchaCheckingId ? pichinchaCheckingId : loan.payFromAccountId;
+  const cardSummaries = data.creditCards.map((card) => {
+    const purchases = data.cardPurchases.filter((purchase) => purchase.creditCardId === card.id);
+    const payments = (data.cardPayments || []).filter((payment) => payment.creditCardId === card.id);
+    const purchasesTotal = purchases.reduce((sum, purchase) => sum + purchase.amount, 0);
+    const paymentsTotal = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const used = Math.max(0, card.openingUsed + purchasesTotal - paymentsTotal);
+    const estimatedPayment = estimateCardPayment(card.currentStatement, card.annualRate, purchases);
+    return { card, purchases, payments, used, available: Math.max(card.creditLimit - used, 0), estimatedPayment };
+  });
+  const fundingPayments = [
+    ...allUpcoming.map((payment) => ({ ...payment, kind: 'recurring' as const })),
+    ...data.bankLoans.filter((loan) => loan.outstandingBalance > 0 && loan.installment > 0 && bankLoanAccountId(loan)).map((loan) => ({ id: `bank-loan-${loan.id}`, sourceId: loan.id, name: loan.name, amount: Math.min(loan.installment, loan.outstandingBalance), next_due_date: loan.nextDueDate, pay_from_account_id: bankLoanAccountId(loan)!, payment_method: 'Automatic Debit', kind: 'bankLoan' as const })),
+    ...cardSummaries.filter(({ card, estimatedPayment }) => estimatedPayment > 0 && card.payFromAccountId).map(({ card, estimatedPayment }) => ({ id: `credit-card-${card.id}`, sourceId: card.id, name: `${card.name} payment`, amount: estimatedPayment, next_due_date: nextMonthlyDate(card.paymentDay, today), pay_from_account_id: card.payFromAccountId!, payment_method: 'Bank Transfer', kind: 'creditCard' as const })),
+  ];
+  const fundingPlan = data.accounts.map((account) => {
+    const payments = fundingPayments.filter((payment) => payment.pay_from_account_id === account.id);
+    const required = payments.reduce((sum, payment) => sum + payment.amount, 0);
+    const ready = Math.min(Math.max(account.balance, 0), required);
+    const nextDue = payments.map((payment) => payment.next_due_date).sort()[0] || null;
+    return { account, payments, required, ready, needed: Math.max(required - Math.max(account.balance, 0), 0), nextDue, paymentCount: payments.length };
+  }).filter((item) => item.required > 0);
+  const totalReadyForPayments = fundingPlan.reduce((sum, item) => sum + item.ready, 0);
+  const totalFundingNeeded = fundingPlan.reduce((sum, item) => sum + item.needed, 0);
+  const outstanding = fundingPlan.reduce((sum, item) => sum + item.required, 0);
+  const projectedBalance = totalBalance - outstanding;
+  const paymentCoverage = outstanding > 0 ? Math.min(100, totalReadyForPayments / outstanding * 100) : 100;
+  const financialTimeline = [
+    ...allUpcoming.map((payment) => ({ id: `recurring-${payment.id}`, name: payment.name, date: payment.next_due_date, amount: payment.amount, kind: payment.payment_method || 'Payment' })),
+    ...data.bankLoans.filter((loan) => loan.outstandingBalance > 0).map((loan) => ({ id: `loan-${loan.id}`, name: loan.name, date: loan.nextDueDate, amount: Math.min(loan.installment, loan.outstandingBalance), kind: 'Automatic Debit' })),
+    ...cardSummaries.filter(({ estimatedPayment }) => estimatedPayment > 0).map(({ card, estimatedPayment }) => ({ id: `card-${card.id}`, name: `${card.name} payment`, date: nextMonthlyDate(card.paymentDay, today), amount: estimatedPayment, kind: 'Bank Transfer' })),
+  ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
+  const fundingMonth = fundingPlan[0]?.nextDue ? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(`${fundingPlan[0].nextDue}T12:00:00`)) : 'Upcoming';
+  const safetyId = data.accounts.find((account) => account.name === 'Pichincha Safety')?.id || '';
+  const debitId = data.accounts.find((account) => account.name === 'Pichincha Debit')?.id || '';
+  const savingsAccounts = data.accounts.filter((account) => account.name === 'Produbanco Savings');
+  const savingsTotal = savingsAccounts.reduce((sum, account) => sum + account.balance, 0);
+  const categorySpending = useMemo(() => {
+    const month = today.slice(0, 7);
+    const totals = new Map<string, { amount: number; count: number }>();
+    data.transactions
+      .filter((transaction) => transaction.type === 'expense' && !transaction.debtMovement && transaction.date.startsWith(month))
+      .forEach((transaction) => {
+        const category = transaction.category || 'Other';
+        const current = totals.get(category) || { amount: 0, count: 0 };
+        totals.set(category, { amount: current.amount + transaction.amount, count: current.count + 1 });
+      });
+    return [...totals.entries()]
+      .map(([category, summary]) => ({ category, ...summary }))
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 7);
+  }, [data.transactions, today]);
+  const categoryMax = Math.max(...categorySpending.map((item) => item.amount), 1);
+  const ecuadorHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Guayaquil', hour: '2-digit', hourCycle: 'h23' }).format(currentTime));
+  const greeting = ecuadorHour < 12 ? 'Good morning' : ecuadorHour < 18 ? 'Good afternoon' : 'Good evening';
+  const currentDateLabel = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Guayaquil', weekday: 'long', month: 'short', day: 'numeric' }).format(currentTime).toUpperCase();
+  const configuredCard = data.creditCards.find((card) => card.payFromAccountId && card.statementDay && card.paymentDay);
+  const setupMissions = [
+    { title: 'Bank accounts', detail: 'Add the accounts you use and their real balances.', done: data.accounts.length > 0, action: () => setCardModal('account') },
+    { title: 'Savings space', detail: 'Create your dedicated Produbanco Savings account.', done: savingsAccounts.length > 0, action: () => setCardModal('account') },
+    { title: 'Credit card', detail: 'Add its limit, used credit and current statement.', done: data.creditCards.length > 0, action: () => setCardModal(data.creditCards.length ? 'statement' : 'card') },
+    { title: 'Billing dates', detail: 'Choose the statement day, payment day and paying account.', done: Boolean(configuredCard), action: () => { if (data.creditCards[0]) setSelectedCardId(data.creditCards[0].id); setCardModal(data.creditCards.length ? 'statement' : 'card'); } },
+    { title: 'Monthly payments', detail: 'Register at least one recurring commitment.', done: data.recurring.length > 0, action: () => setActiveAction('Recurring') },
+  ];
+  const completedMissions = setupMissions.filter((mission) => mission.done).length;
+  const viewTitles: Record<DashboardView, string> = { overview: 'Overview', accounts: 'Accounts & savings', payments: 'Payments', credit: 'Credit & loans', people: 'Money between people', activity: 'Cash flow' };
+  const navigateTo = (view: DashboardView) => { setActiveView(view); window.history.pushState(null, '', `#${view}`); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+
+  const celebrateMoneyIn = () => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    setCelebrationKey((key) => key + 1);
+    window.setTimeout(() => setCelebrationKey(0), 2900);
+  };
+
+  useEffect(() => {
+    if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const rows = root.current.querySelectorAll('.account-row,.payment-row,.activity-row');
+    const categories = root.current.querySelectorAll('.category-row');
+    const tracks = root.current.querySelectorAll('.category-track i,.progress-track span,.savings-track i,.credit-limit-track i,.bank-loan-track i,.funding-account-track i');
+    if (rows.length) animate(rows, { opacity: [0, 1], x: [16, 0], delay: stagger(42), duration: 520, ease: 'outCubic' });
+    if (categories.length) animate(categories, { opacity: [0, 1], y: [10, 0], delay: stagger(70), duration: 500, ease: 'outCubic' });
+    if (tracks.length) animate(tracks, { scaleX: [0, 1], delay: stagger(75), duration: 850, ease: 'outExpo' });
+  }, [activeView, data.accounts, data.transactions, data.recurring, data.creditCards, data.bankLoans]);
+
+  useEffect(() => {
+    if (!celebrationKey || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const particles = document.querySelectorAll<HTMLElement>('.money-particle');
+    const animations = [...particles].map((particle, index) => animate(particle, {
+      opacity: [0, 1, { to: 0, duration: 420 }],
+      y: [-90, window.innerHeight + 120],
+      x: [0, Number(particle.dataset.drift || 0)],
+      rotate: [0, Number(particle.dataset.spin || 360)],
+      scale: [.65, Number(particle.dataset.scale || 1)],
+      delay: index * 32,
+      duration: 1750 + (index % 6) * 135,
+      ease: 'inQuad',
+    }));
+    const toastPulse = animate('.toast', { scale: [.92, 1.04, 1], duration: 620, ease: 'outElastic(1,.55)' });
+    return () => { animations.forEach((animation) => animation.revert()); toastPulse.revert(); };
+  }, [celebrationKey]);
+
+  useEffect(() => {
+    if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const glow = root.current.querySelector<HTMLElement>('.savings-glow');
+    const pulse = root.current.querySelector<HTMLElement>('.savings-account>div:first-child>span');
+    if (!glow || !pulse) return;
+    const glowAnimation = animate(glow, {
+      x: ['-120%', '520%'],
+      scaleX: [{ to: 1.7, duration: 700 }, { to: .8, duration: 900 }],
+      opacity: [{ to: 1, duration: 260 }, { to: .25, duration: 900 }],
+      duration: 2600,
+      loop: true,
+      loopDelay: 450,
+      ease: 'inOutSine',
+    });
+    const pulseAnimation = animate(pulse, {
+      boxShadow: [
+        '0 0 0 0 rgba(189,244,119,0)',
+        '0 0 0 8px rgba(189,244,119,.08)',
+        '0 0 0 0 rgba(189,244,119,0)',
+      ],
+      duration: 2200,
+      loop: true,
+      ease: 'inOutSine',
+    });
+    return () => { glowAnimation.revert(); pulseAnimation.revert(); };
+  }, [savingsAccounts.length]);
+
+  useEffect(() => {
+    if (!showAllUpcoming || !root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const animation = animate(root.current.querySelectorAll('.upcoming-list .payment-row:nth-child(n+4)'), {
+      opacity: [0, 1], y: [12, 0], delay: stagger(45), duration: 460, ease: 'outCubic',
+    });
+    return () => { animation.revert(); };
+  }, [showAllUpcoming]);
+
+  async function signOut() {
+    await createClient().auth.signOut();
+    window.sessionStorage.removeItem('doryc_access_token');
+    window.sessionStorage.removeItem('moro_access_token');
+    window.location.assign('/login');
+  }
+
+  async function submitEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeAction) return;
+    const form = new FormData(event.currentTarget);
+    const payload = Object.fromEntries(form.entries());
+    payload.type = activeAction;
+    if (editingTransaction) { payload.entity = 'transactionUpdate'; payload.id = editingTransaction.id; }
+    setSaving(true);
+    setError('');
+    try {
+      const response = await authenticatedFetch('/api/dashboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to save.');
+      setData(result);
+      setActiveAction(null);
+      setEditingTransaction(null);
+      setToast(editingTransaction ? 'Movement updated' : `${activeAction} saved`);
+      if (!editingTransaction && activeAction === 'Income') celebrateMoneyIn();
+      window.setTimeout(() => setToast(''), 2400);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to save.');
+    } finally { setSaving(false); }
+  }
+
+  async function deleteTransaction(item: Transaction) {
+    if (!window.confirm(`Delete ${item.description}? This will update the account balance.`)) return;
+    const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'transaction', id: item.id }) });
+    const result = await response.json();
+    if (response.ok) { setData(result); setToast('Movement deleted'); window.setTimeout(() => setToast(''), 2400); }
+    else setError(result.error || 'Unable to delete this movement.');
+  }
+
+  async function deleteAccount(account: Account) {
+    if (!window.confirm(`Delete ${account.name}? This is only possible when it has no linked movements or payments.`)) return;
+    const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'account', id: account.id }) });
+    const result = await response.json();
+    if (response.ok) { setData(result); setToast('Account deleted'); window.setTimeout(() => setToast(''), 2400); }
+    else setError('This account is still used by a movement, payment or card. Reassign those records before deleting it.');
+  }
+
+  async function deleteBankLoan(loan: BankLoan) {
+    if (!window.confirm(`Delete ${loan.name}?`)) return;
+    const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'bankLoan', id: loan.id }) });
+    const result = await response.json();
+    if (response.ok) { setData(result); setToast('Bank loan deleted'); window.setTimeout(() => setToast(''), 2400); }
+    else setError(result.error || 'Unable to delete this bank loan.');
+  }
+
+  async function deleteRecurring(payment: Recurring) {
+    if (!window.confirm(`Delete the recurring payment ${payment.name}?`)) return;
+    const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'recurring', id: payment.id }) });
+    const result = await response.json();
+    if (response.ok) { setData(result); setToast('Recurring payment deleted'); window.setTimeout(() => setToast(''), 2400); }
+    else setError(result.error || 'Unable to delete this recurring payment.');
+  }
+
+  async function submitCardEntry(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!cardModal) return;
+    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    payload.entity = cardModal === 'account' ? selectedAccountId ? 'accountUpdate' : 'account' : cardModal === 'bankLoan' ? 'bankLoan' : cardModal === 'card' ? 'creditCard' : cardModal === 'statement' ? 'creditCardStatement' : cardModal === 'loan' ? 'personalLoan' : cardModal === 'cardPayment' ? 'creditCardPayment' : cardModal === 'loanPayment' ? 'personalLoanPayment' : cardModal === 'loanIncrease' ? 'personalLoanIncrease' : 'cardPurchase';
+    if (cardModal === 'account' && selectedAccountId) payload.id = selectedAccountId;
+    setSaving(true); setError('');
+    try {
+      const response = await authenticatedFetch('/api/dashboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to save.');
+      const receivedPersonalPayment = cardModal === 'loanPayment' && data.personalLoans.find((loan) => loan.id === selectedCardId)?.direction === 'owed_to_me';
+      setData(result); setCardModal(null); setToast(cardModal === 'account' ? selectedAccountId ? 'Account updated' : 'Account added' : cardModal === 'bankLoan' ? 'Bank loan added' : cardModal === 'card' ? 'Credit card added' : cardModal === 'statement' ? 'Statement updated' : cardModal === 'loan' ? 'Personal loan saved' : cardModal === 'cardPayment' ? 'Card payment saved' : cardModal === 'loanPayment' ? 'Loan payment saved' : cardModal === 'loanIncrease' ? 'Additional debt saved' : 'Card purchase saved');
+      if (receivedPersonalPayment) celebrateMoneyIn();
+      if (cardModal === 'account') setSelectedAccountId('');
+      window.setTimeout(() => setToast(''), 2400);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to save.'); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteCreditCard(card: CreditCard) {
+    if (!window.confirm(`Delete ${card.name}? Its card purchases will also be removed.`)) return;
+    setSaving(true); setError('');
+    try {
+      const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'creditCard', id: card.id }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to delete card.');
+      setData(result); setToast(`${card.name} deleted`); window.setTimeout(() => setToast(''), 2400);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Unable to delete card.'); }
+    finally { setSaving(false); }
+  }
+
+  async function deleteCardPurchase(purchase: CardPurchase) {
+    if (!window.confirm(`Delete ${purchase.description}?`)) return;
+    const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'cardPurchase', id: purchase.id }) });
+    const result = await response.json();
+    if (response.ok) { setData(result); setToast('Card purchase deleted'); window.setTimeout(() => setToast(''), 2400); }
+    else setError(result.error || 'Unable to delete purchase.');
+  }
+
+  async function deletePersonalLoan(loan: PersonalLoan) {
+    if (!window.confirm(`Delete the IOU with ${loan.personName}?`)) return;
+    const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'personalLoan', id: loan.id }) });
+    const result = await response.json();
+    if (response.ok) { setData(result); setToast('Personal IOU deleted'); window.setTimeout(() => setToast(''), 2400); }
+    else setError(result.error || 'Unable to delete this personal IOU.');
+  }
+
+  async function deleteLoanPayment(payment: PersonalLoanPayment) {
+    if (!window.confirm(`Delete this ${payment.entryType === 'advance' ? 'debt addition' : 'payment'} of ${money(payment.amount)}?`)) return;
+    const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'loanPayment', id: payment.id }) });
+    const result = await response.json();
+    if (response.ok) { setData(result); setToast(payment.entryType === 'advance' ? 'Debt addition removed' : 'Payment removed'); window.setTimeout(() => setToast(''), 2400); }
+    else setError(result.error || 'Unable to remove this entry.');
+  }
+
+  async function completeOnboarding() {
+    window.localStorage.setItem('doryc_setup_dismissed', 'true');
+    setShowOnboarding(false);
+    try {
+      const response = await authenticatedFetch('/api/dashboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'onboardingComplete' }) });
+      if (response.ok) setData(await response.json());
+    } catch { /* Local preference keeps the guide dismissed until Supabase preferences are available. */ }
+  }
+
+  async function markRecurringPaid(payment: Recurring) {
+    setPayingRecurringId(payment.id);
+    setError('');
+    try {
+      const response = await authenticatedFetch('/api/dashboard', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recurringId: payment.id, date: today, action: 'pay' }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to mark this payment as paid.');
+      setData(result);
+      setToast(`${payment.name} paid`);
+      window.setTimeout(() => setToast(''), 2400);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to mark this payment as paid.');
+    } finally { setPayingRecurringId(null); }
+  }
+
+  async function markFundingPaymentPaid(payment: (typeof fundingPayments)[number]) {
+    if (payment.kind === 'recurring') return markRecurringPaid(payment);
+    setPayingRecurringId(payment.id);
+    setError('');
+    try {
+      const body = payment.kind === 'creditCard'
+        ? { entity: 'creditCardPayment', creditCardId: payment.sourceId, fromAccountId: payment.pay_from_account_id, amount: payment.amount, date: today, note: `${payment.name} · Bank Transfer` }
+        : { entity: 'bankLoanPayment', bankLoanId: payment.sourceId, fromAccountId: payment.pay_from_account_id, amount: payment.amount, date: today };
+      const response = await authenticatedFetch('/api/dashboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to mark this payment as paid.');
+      setData(result);
+      setToast(`${payment.name} paid by bank transfer`);
+      window.setTimeout(() => setToast(''), 2400);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to mark this payment as paid.');
+    } finally { setPayingRecurringId(null); }
+  }
+
+  async function undoRecurringPayment(payment: Recurring) {
+    setPayingRecurringId(payment.id);
+    setError('');
+    try {
+      const response = await authenticatedFetch('/api/dashboard', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recurringId: payment.id, date: today, action: 'undo' }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Unable to undo this payment.');
+      setData(result);
+      setToast(`${payment.name} restored`);
+      window.setTimeout(() => setToast(''), 2400);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to undo this payment.');
+    } finally { setPayingRecurringId(null); }
+  }
+
+  return (
+    <main ref={root} className={`app-shell ${loading ? 'app-is-loading' : ''}`}>
+      {loading && <section className="app-loading-screen" role="status" aria-live="polite"><LogoMark /><div><p className="eyebrow">DORYC</p><h1>Bringing your finances together</h1><small>Connecting securely to your financial home…</small></div><div className="app-loading-progress" aria-hidden="true"><i /></div></section>}
+      <DashboardSidebar activeView={activeView} name={data.name} paymentCount={fundingPayments.length} onNavigate={navigateTo} />
+
+      <section className={`dashboard ${loading ? 'is-loading' : ''}`} id="top" aria-busy={loading}>
+        <header className="topbar" data-reveal>
+          <div><p className="eyebrow">{activeView === 'overview' ? currentDateLabel : 'DORYC'}</p><h1>{activeView === 'overview' ? <><span className="greeting-word">{greeting},</span>{' '}<span className="greeting-word greeting-name">{data.name}.</span></> : viewTitles[activeView]}</h1></div>
+          <button className="icon-button" type="button" onClick={signOut} aria-label="Sign out" title="Sign out"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4m4-4H9"/></svg><span className="button-tooltip">Sign out</span></button>
+        </header>
+        {error && !activeAction && <div className="page-error" role="alert"><span><strong>Connection interrupted</strong><small>{error}</small></span><button type="button" onClick={() => { setLoading(true); setError(''); setLoadAttempt((attempt) => attempt + 1); }}>Try again</button></div>}
+
+        {showOnboarding && activeView === 'overview' && <section className="onboarding-panel">
+          <button type="button" aria-label="Dismiss setup guide" onClick={completeOnboarding}>×</button>
+          <div><p className="eyebrow">DORYC SETUP MISSIONS</p><h2>Set up your financial home</h2><p>Complete each mission once. Doryc detects what is already configured.</p><div className="onboarding-progress"><span><i style={{ width: `${completedMissions / setupMissions.length * 100}%` }} /></span><strong>{completedMissions} of {setupMissions.length} complete</strong></div></div>
+          <div className="onboarding-steps">{setupMissions.map((mission, index) => <button type="button" className={mission.done ? 'completed' : ''} key={mission.title} onClick={mission.action}><i>{mission.done ? '✓' : index + 1}</i><strong>{mission.title}</strong><small>{mission.done ? 'Completed' : mission.detail}</small><b>{mission.done ? 'Done' : 'Open →'}</b></button>)}</div>
+          <div className="onboarding-actions"><small>{completedMissions === setupMissions.length ? 'Everything is ready.' : 'You can close this guide and continue later.'}</small><button className="onboarding-action" type="button" onClick={completeOnboarding}>{completedMissions === setupMissions.length ? 'Finish setup ✓' : 'Close for now'}</button></div>
+        </section>}
+
+        <section className="hero-grid" id="overview" hidden={activeView !== 'overview'}>
+          <article className="balance-card" data-reveal>
+            <div className="card-kicker"><span>Available balance</span><span className="live-dot">Live</span></div>
+            <strong className="balance">{money(totalBalance)}</strong><p>Across {availableAccounts.length} available accounts</p>
+            <div className="balance-footer"><span><small>Income this month</small><strong>+{money(data.income)}</strong></span><span><small>Spent this month</small><strong>−{money(data.spent)}</strong></span></div>
+          </article>
+          <article className="funding-card" data-reveal>
+            <div className="card-kicker"><span>Funding needed</span><span>{fundingMonth}</span></div>
+            <div className="funding-main"><strong>{money(totalFundingNeeded)}</strong><span>still needed across {fundingPlan.length} accounts</span></div>
+            <div className="progress-track"><span style={{ width: `${Math.min(100, totalReadyForPayments / Math.max(outstanding, 1) * 100)}%` }} /></div>
+            <div className="funding-meta"><span>{money(totalReadyForPayments)} ready</span><span>{money(outstanding)} scheduled</span></div>
+            <button className="funding-plan-button" type="button" onClick={() => setShowFundingPlan(true)}>View account plan <span>→</span></button>
+          </article>
+        </section>
+
+        <section className="overview-links" hidden={activeView !== 'overview'} aria-label="Financial areas">
+          <button type="button" onClick={() => navigateTo('accounts')}><span>▥</span><small>Accounts & savings</small><strong>{money(totalBalance + savingsTotal)}</strong><i>→</i></button>
+          <button type="button" onClick={() => navigateTo('payments')}><span>◷</span><small>Upcoming payments</small><strong>{money(outstanding)}</strong><i>→</i></button>
+          <button type="button" onClick={() => navigateTo('credit')}><span>◇</span><small>Credit & bank loans</small><strong>{data.creditCards.length + data.bankLoans.length} active</strong><i>→</i></button>
+          <button type="button" onClick={() => navigateTo('people')}><span>↔</span><small>Money between people</small><strong>{data.personalLoans.filter((loan) => loan.status !== 'settled').length} open</strong><i>→</i></button>
+        </section>
+
+        <section className="overview-intelligence" hidden={activeView !== 'overview'}>
+          <article className={`financial-pulse ${projectedBalance < 0 ? 'warning' : ''}`}>
+            <div className="pulse-heading"><span><p className="eyebrow">FINANCIAL PULSE</p><h2>{projectedBalance >= 0 ? 'Your month is taking shape.' : 'Your commitments need attention.'}</h2></span><i>{paymentCoverage.toFixed(0)}%</i></div>
+            <p className="pulse-message">After covering {fundingMonth.toLowerCase()} commitments, you would have <strong>{money(projectedBalance)}</strong> available outside savings.</p>
+            <div className="pulse-visual" aria-hidden="true"><svg viewBox="0 0 600 82" preserveAspectRatio="none"><defs><linearGradient id="pulseGradient" x1="0" x2="1"><stop offset="0" stopColor="#6d9f43"/><stop offset=".55" stopColor="#bdf477"/><stop offset="1" stopColor="#dffff0"/></linearGradient></defs><path className="pulse-shadow" d="M0 58 C55 58 65 45 105 45 S155 69 195 53 S245 20 285 42 S340 62 380 45 S430 30 465 44 S535 54 600 21"/><path className="pulse-line" d="M0 58 C55 58 65 45 105 45 S155 69 195 53 S245 20 285 42 S340 62 380 45 S430 30 465 44 S535 54 600 21"/></svg><b style={{ left: `${Math.max(3, Math.min(96, paymentCoverage))}%` }} /></div>
+            <div className="pulse-stats"><span><small>Ready now</small><strong>{money(totalReadyForPayments)}</strong></span><span><small>Scheduled</small><strong>{money(outstanding)}</strong></span><span><small>Still needed</small><strong>{money(totalFundingNeeded)}</strong></span></div>
+          </article>
+          <article className="financial-calendar">
+            <div className="calendar-heading"><span><p className="eyebrow">MONEY CALENDAR</p><h2>Next on your timeline</h2></span><button type="button" onClick={() => navigateTo('payments')}>View all →</button></div>
+            <div className="timeline-list">{financialTimeline.length ? financialTimeline.map((item, index) => <div className="timeline-item" key={item.id}><time><strong>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { day: '2-digit' })}</strong><small>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })}</small></time><i className={index === 0 ? 'next' : ''}/><span><strong>{item.name}</strong><small>{item.kind}</small></span><b>−{money(item.amount)}</b></div>) : <div className="timeline-empty"><strong>Your calendar is clear</strong><small>New scheduled payments will appear here.</small></div>}</div>
+          </article>
+        </section>
+
+        <section className="savings-panel panel" id="savings" data-reveal hidden={activeView !== 'accounts'}>
+          <div className="savings-heading"><div><p className="eyebrow">SAVINGS</p><h2>Produbanco savings</h2><p>Your dedicated Produbanco savings account.</p></div><div><small>Total saved</small><strong>{money(savingsTotal)}</strong></div></div>
+          <div className="savings-grid">{savingsAccounts.map((account) => {
+            const share = savingsTotal > 0 ? account.balance / savingsTotal * 100 : 0;
+            return <article className="savings-account" key={account.id}><div><span><PiggyBankIcon /></span><p><strong>{account.name}</strong><small>{account.bank} · Savings</small></p><strong>{money(account.balance)}</strong></div><div className="savings-track"><i style={{ width: `${savingsTotal > 0 ? Math.max(3, share) : 0}%` }} /><b className="savings-glow" aria-hidden="true" /></div><div><small>{share.toFixed(0)}% of savings</small><small>{account.balance > 0 ? 'Earning reserve' : 'Ready for your first deposit'}</small></div></article>;
+          })}</div>
+        </section>
+
+        <section className="cards-panel panel" data-reveal hidden={activeView !== 'credit'}>
+          <div className="section-heading"><div><p className="eyebrow">CREDIT</p><h2>Credit cards</h2></div><button type="button" className="text-action" onClick={() => setCardModal('card')}>+ Add card</button></div>
+          {cardSummaries.length ? <><div className="credit-card-grid">{cardSummaries.map(({ card, purchases, used, available, estimatedPayment }) => <article className="credit-card" key={card.id}>
+            <div className="credit-card-top"><span>{card.bank}</span><strong className={`card-network ${(card.network || (card.name.toLowerCase().includes('mastercard') ? 'Mastercard' : 'Visa')).toLowerCase()}`}>{(card.network || (card.name.toLowerCase().includes('mastercard') ? 'Mastercard' : 'Visa')).toUpperCase()}</strong></div><h3>{card.name}</h3>
+            <div className="credit-card-balance"><span><small>Available</small><strong>{money(available)}</strong></span><span><small>Used</small><strong>{money(used)}</strong></span></div>
+            <div className="credit-limit-track"><i style={{ width: `${Math.min(100, used / card.creditLimit * 100)}%` }} /></div>
+            <div className="credit-card-meta"><span>{money(card.creditLimit)} limit</span><span>{Math.round(used / card.creditLimit * 100)}% used</span></div>
+            <div className="credit-next-payment"><span><small>Estimated next payment</small><strong>{money(estimatedPayment)}</strong></span><span><small>Paid by transfer from</small><strong>{accountMap.get(card.payFromAccountId || '') || 'Select account'}</strong></span></div>
+            <div className="credit-card-footer"><small>{purchases.length} purchases · cut day {card.statementDay || '—'} · pay day {card.paymentDay || '—'}</small><span><button type="button" onClick={() => { setSelectedCardId(card.id); setCardModal('cardPayment'); }}>Pay card</button><button type="button" onClick={() => { setSelectedCardId(card.id); setCardModal('statement'); }}>Settings</button><button type="button" onClick={() => { setSelectedCardId(card.id); setCardModal('purchase'); }}>Add purchase</button><button className="danger-button" type="button" onClick={() => deleteCreditCard(card)}>Delete</button></span></div>
+          </article>)}</div><div className="card-cash-flow"><div><p className="eyebrow">CARD CASH FLOW</p><h3>What is shaping your card payment</h3></div><div className="card-flow-stats"><span className="used-credit-stat"><small>Used credit · current debt</small><strong>{money(cardSummaries.reduce((sum, item) => sum + item.used, 0))}</strong></span><span><small>New purchases</small><strong>{money(data.cardPurchases.reduce((sum, purchase) => sum + purchase.amount, 0))}</strong></span><span><small>Estimated next payment</small><strong>{money(cardSummaries.reduce((sum, item) => sum + item.estimatedPayment, 0))}</strong></span></div>{data.cardPurchases.length ? <div className="card-purchase-list">{data.cardPurchases.slice(0, 5).map((purchase) => <div key={purchase.id}><span><strong>{purchase.description}</strong><small>{purchase.installmentMonths > 1 ? `Installment ${Math.min((purchase.installmentsPaid || 0) + 1, purchase.installmentMonths)} of ${purchase.installmentMonths} · ${purchase.withInterest ? 'with interest' : 'no interest'}` : 'Current purchase'}</small></span><span className="purchase-actions"><strong>{money(purchase.amount)}</strong><button type="button" onClick={() => deleteCardPurchase(purchase)}>Delete</button></span></div>)}</div> : <p className="card-flow-empty">Your card purchases will appear here and explain the estimated payment.</p>}{(data.cardPayments || []).length > 0 && <div className="card-payment-history"><p>Recent card payments</p>{(data.cardPayments || []).slice(0, 3).map((payment) => <span key={payment.id}><small>{shortDate(payment.date)} · {accountMap.get(payment.fromAccountId)}</small><strong>+{money(payment.amount)} credit freed</strong></span>)}</div>}</div></> : <div className="credit-empty"><span>◇</span><div><strong>No credit cards yet</strong><small>Add your card limit and current used balance to start forecasting payments.</small></div><button type="button" onClick={() => setCardModal('card')}>Add credit card</button></div>}
+        </section>
+
+        <section className="bank-loans-panel panel" data-reveal hidden={activeView !== 'credit'}>
+          <div className="section-heading"><div><p className="eyebrow">BANK DEBT</p><h2>Loans</h2></div><button type="button" className="text-action" onClick={() => setCardModal('bankLoan')}>+ Add loan</button></div>
+          {data.bankLoans.length ? <div className="bank-loan-grid">{data.bankLoans.map((loan) => {
+            const progress = Math.min(100, loan.paidInstallments / Math.max(loan.totalInstallments, 1) * 100);
+            return <article key={loan.id}><div className="bank-loan-top"><span><small>{loan.bank}</small><strong>{loan.name}</strong></span><button className="danger-mini icon-action" type="button" aria-label={`Delete ${loan.name}`} title="Delete" onClick={() => deleteBankLoan(loan)}><TrashIcon /></button></div><div className="bank-loan-values"><span><small>Outstanding balance</small><strong>{money(loan.outstandingBalance)}</strong></span><span><small>Monthly installment</small><strong>{money(loan.installment)}</strong></span><span><small>Next payment</small><strong>{shortDate(loan.nextDueDate)}</strong></span></div><div className="bank-loan-track"><i style={{ width: `${progress}%` }} /></div><div className="bank-loan-meta"><small>{loan.paidInstallments} of {loan.totalInstallments} installments paid</small><small>Automatic Debit · {accountMap.get(bankLoanAccountId(loan) || '') || `day ${loan.paymentDay}`}</small></div></article>;
+          })}</div> : <div className="credit-empty"><span>▤</span><div><strong>No bank loans yet</strong><small>Track the balance, installment and maximum payment date.</small></div><button type="button" onClick={() => setCardModal('bankLoan')}>Add bank loan</button></div>}
+        </section>
+
+        <section className="loans-panel panel" data-reveal hidden={activeView !== 'people'}>
+          <div className="section-heading"><div><p className="eyebrow">PERSONAL IOUs</p><h2>Money between people</h2></div><button type="button" className="text-action" onClick={() => setCardModal('loan')}>+ Add IOU</button></div>
+          {data.personalLoans.length ? <div className="loan-grid">{data.personalLoans.map((loan) => {
+            const history = (data.personalLoanPayments || []).filter((payment) => payment.personalLoanId === loan.id);
+            return <article className={`${loan.direction} ${loan.status === 'settled' ? 'settled' : ''}`} key={loan.id}><span>{loan.status === 'settled' ? '✓' : loan.direction === 'i_owe' ? '↓' : '↑'}</span><div><small>{loan.status === 'settled' ? 'Settled' : loan.direction === 'i_owe' ? 'I owe' : 'Owed to me'}</small><strong>{loan.personName}</strong><p>{loan.note || (loan.direction === 'i_owe' ? 'Money I need to return' : 'Money they need to return')}</p></div><div><strong>{money(Math.max(loan.amount - loan.paid, 0))}</strong><span className="loan-actions"><button type="button" onClick={() => { setSelectedCardId(loan.id); setCardModal('loanIncrease'); }}>Add debt</button>{loan.status !== 'settled' && <button type="button" onClick={() => { setSelectedCardId(loan.id); setCardModal('loanPayment'); }}>Record payment</button>}<button className="history-toggle" type="button" aria-label={expandedLoanId === loan.id ? 'Hide movement history' : 'Show movement history'} title={expandedLoanId === loan.id ? 'Hide history' : 'Show history'} onClick={() => setExpandedLoanId((current) => current === loan.id ? null : loan.id)}><ChevronIcon open={expandedLoanId === loan.id} />{history.length > 0 && <i>{history.length}</i>}</button><button className="loan-delete icon-action" type="button" aria-label={`Delete IOU with ${loan.personName}`} title="Delete" onClick={() => deletePersonalLoan(loan)}><TrashIcon /></button></span></div>{expandedLoanId === loan.id && <div className="loan-history"><p>Movement history</p>{history.length ? history.slice(0, 8).map((payment) => <span key={payment.id}><small>{shortDate(payment.date)} · {accountMap.get(payment.accountId) || 'Account'}</small><strong>{payment.entryType === 'advance' ? `Added ${money(payment.amount)}` : `${loan.direction === 'i_owe' ? 'You paid ' : 'You received '}${money(payment.amount)}`}</strong><button className="history-delete icon-action" type="button" aria-label="Delete this movement" title="Delete" onClick={() => deleteLoanPayment(payment)}><TrashIcon /></button></span>) : <small>No payments or additional loans recorded yet.</small>}</div>}</article>;
+          })}</div> : <div className="credit-empty"><span>↔</span><div><strong>No personal loans pending</strong><small>Record money borrowed from friends or money you lent so it is not forgotten.</small></div><button type="button" onClick={() => setCardModal('loan')}>Add IOU</button></div>}
+        </section>
+
+        <section className="activity-panel panel" id="activity" data-reveal hidden={activeView !== 'activity'}>
+          <div className="section-heading"><div><p className="eyebrow">AUGUST</p><h2>Cash flow</h2></div><div className="section-actions"><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Expense'); }}>+ Expense</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Income'); }}>+ Income</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Transfer'); }}>+ Transfer</button></div></div>
+          <div className="activity-grid">
+            <div className="chart-wrap" aria-label="Monthly spending by category">
+              <div className="chart-total"><span>Spent this month</span><strong>{money(data.spent)}</strong></div>
+              {categorySpending.length ? <>
+                <div className="category-chart">{categorySpending.map((item, index) => {
+                  const percentage = data.spent ? (item.amount / data.spent) * 100 : 0;
+                  return <div className="category-row" key={item.category}>
+                    <div className="category-meta"><span><i>{index + 1}</i><strong>{item.category}</strong><small>{item.count} {item.count === 1 ? 'purchase' : 'purchases'}</small></span><span><strong>{money(item.amount)}</strong><small>{percentage.toFixed(0)}% of spending</small></span></div>
+                    <div className="category-track" title={`${item.category}: ${money(item.amount)} (${percentage.toFixed(1)}%)`}><i style={{ width: `${Math.max(4, (item.amount / categoryMax) * 100)}%` }} /></div>
+                  </div>;
+                })}</div>
+                <div className="chart-insight"><span>↗</span><p><strong>{categorySpending[0].category} is your largest category.</strong><small>It represents {((categorySpending[0].amount / data.spent) * 100).toFixed(0)}% of this month&apos;s spending.</small></p></div>
+              </> : <div className="chart-empty"><strong>No expenses yet</strong><small>Your category chart will appear after your first expense.</small></div>}
+            </div>
+            <div className="activity-list">
+              {activity.length ? activity.map((item) => {
+                const account = item.type === 'income' ? accountMap.get(item.to_account_id || '') : accountMap.get(item.from_account_id || '');
+                const prefix = item.type === 'income' ? '+' : item.type === 'transfer' ? '⇄ ' : '−';
+                return <div className={`activity-row ${item.debtMovement ? 'debt-movement-row' : ''}`} key={item.id}><span className="activity-bullet">{item.debtMovement ? '↔' : item.description[0]}</span><span><strong>{item.description}</strong><small>{item.type === 'transfer' ? `${accountMap.get(item.from_account_id || '')} → ${accountMap.get(item.to_account_id || '')}` : `${item.category || item.type} · ${account}`}</small></span><strong className={item.type}>{prefix}{money(item.amount)}</strong>{!item.debtMovement && <span className="row-actions"><button className="icon-action" type="button" aria-label={`Edit ${item.description}`} title="Edit" onClick={() => { setEditingTransaction(item); setActiveAction((item.type[0].toUpperCase() + item.type.slice(1)) as ActionType); }}><PencilIcon /></button><button className="danger-mini icon-action" type="button" aria-label={`Delete ${item.description}`} title="Delete" onClick={() => deleteTransaction(item)}><TrashIcon /></button></span>}</div>;
+              }) : <div className="empty-state"><strong>No activity yet</strong><small>Your first expense, income or transfer will appear here.</small></div>}
+              {data.transactions.length > 5 && <button className="show-all-button" type="button" onClick={() => setShowAllActivity((current) => !current)}>{showAllActivity ? 'Show recent only' : `View all ${data.transactions.length} movements`}</button>}
+            </div>
+          </div>
+        </section>
+
+        <section className="content-grid single-view" hidden={activeView !== 'accounts' && activeView !== 'payments'}>
+          <article className="panel" id="accounts" data-reveal hidden={activeView !== 'accounts'}>
+            <div className="section-heading"><div><p className="eyebrow">YOUR MONEY</p><h2>Accounts</h2></div><div className="section-actions"><span className="live-label">Live balances</span><button type="button" onClick={() => { setSelectedAccountId(''); setCardModal('account'); }}>+ Add account</button></div></div>
+            <div className="account-list">{data.accounts.map((account, index) => <div className="account-row" key={account.id}><span className={`account-icon ${['mint', 'violet', 'orange'][index % 3]}`}>{account.name.split(' ')[1]?.[0] || account.name[0]}</span><span><strong>{account.name}</strong><small>{account.accountType}</small></span><strong>{money(account.balance)}</strong><span className="row-actions"><button className="icon-action" type="button" aria-label={`Edit ${account.name}`} title="Edit" onClick={() => { setSelectedAccountId(account.id); setCardModal('account'); }}><PencilIcon /></button><button className="danger-mini icon-action" type="button" aria-label={`Delete ${account.name}`} title="Delete" onClick={() => deleteAccount(account)}><TrashIcon /></button></span></div>)}</div>
+          </article>
+          <article className="panel" id="plans" data-reveal hidden={activeView !== 'payments'}>
+            <div className="section-heading"><div><p className="eyebrow">NEXT PAYMENTS</p><h2>Upcoming</h2></div><div className="section-actions"><span className="live-label">{data.recurring.length + data.creditCards.length + data.bankLoans.length} active</span><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Recurring'); }}>+ Recurring</button></div></div>
+            <div className="upcoming-list">{upcoming.map((payment) => <div className="payment-row editable-payment-row" key={payment.id}><span className="payment-icon">◷</span><span><strong>{payment.name}</strong><small>{shortDate(payment.next_due_date)} · {accountMap.get(payment.pay_from_account_id)}</small></span><strong>−{money(payment.amount)}</strong><button className="danger-mini icon-action" type="button" aria-label={`Delete ${payment.name}`} title="Delete" onClick={() => deleteRecurring(payment)}><TrashIcon /></button></div>)}{data.bankLoans.map((loan) => <div className="payment-row bank-loan-payment-row" key={`loan-${loan.id}`}><span className="payment-icon">▤</span><span><strong>{loan.name}</strong><small>{shortDate(loan.nextDueDate)} · Automatic Debit · {accountMap.get(bankLoanAccountId(loan) || '') || loan.bank}</small></span><strong>−{money(loan.installment)}</strong></div>)}{cardSummaries.map(({ card, estimatedPayment }) => <div className="payment-row card-payment-row" key={`card-${card.id}`}><span className="payment-icon">◇</span><span><strong>{card.name} payment</strong><small>Day {card.paymentDay || '—'} · Bank Transfer · {accountMap.get(card.payFromAccountId || '') || 'select payment account'}</small></span><strong>−{money(estimatedPayment)}</strong></div>)}{!upcoming.length && !cardSummaries.length && !data.bankLoans.length && <div className="empty-state"><strong>No upcoming payments</strong><small>Add a recurring payment, loan or credit card above.</small></div>}</div>
+            {allUpcoming.length > 3 && <button className="show-all-button" type="button" onClick={() => setShowAllUpcoming((visible) => !visible)}>{showAllUpcoming ? 'Show less' : `View all ${allUpcoming.length}`}</button>}
+            {paidThisCycle.length > 0 && <div className="paid-cycle"><p><span>✓</span> Paid this cycle</p>{paidThisCycle.map((payment) => <div key={payment.id}><span><strong>{payment.name}</strong><small>{money(payment.amount)} · next {shortDate(payment.next_due_date)}</small></span><button type="button" disabled={payingRecurringId === payment.id} onClick={() => undoRecurringPayment(payment)}>{payingRecurringId === payment.id ? 'Restoring…' : 'Undo'}</button></div>)}</div>}
+          </article>
+        </section>
+
+        {showFundingPlan && (
+          <div className="modal-backdrop" role="presentation" onMouseDown={() => { setShowFundingPlan(false); setExpandedFundingAccount(null); }}>
+            <section className="modal-card funding-plan-modal" role="dialog" aria-modal="true" aria-labelledby="funding-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="modal-heading"><div><p className="eyebrow">ACCOUNT FUNDING</p><h2 id="funding-title">What you need, and when</h2></div><button onClick={() => { setShowFundingPlan(false); setExpandedFundingAccount(null); }} aria-label="Close">×</button></div>
+              <div className="funding-summary"><span><small>Scheduled</small><strong>{money(outstanding)}</strong></span><span><small>Ready</small><strong>{money(totalReadyForPayments)}</strong></span><span><small>Still needed</small><strong>{money(totalFundingNeeded)}</strong></span></div>
+              <div className="funding-account-list">{fundingPlan.map((item) => <article className="funding-account-row" key={item.account.id}>
+                <button className="funding-account-toggle" type="button" aria-expanded={expandedFundingAccount === item.account.id} onClick={() => setExpandedFundingAccount((current) => current === item.account.id ? null : item.account.id)}><span className="funding-account-icon">{item.account.name.split(' ')[1]?.[0] || item.account.name[0]}</span><span><strong>{item.account.name}</strong><small>{item.paymentCount} {item.paymentCount === 1 ? 'payment' : 'payments'} · due from {item.nextDue ? shortDate(item.nextDue) : '—'}</small></span><i>⌄</i></button>
+                <div className="funding-account-values"><span><small>Balance</small><strong>{money(item.account.balance)}</strong></span><span><small>Required</small><strong>{money(item.required)}</strong></span><span className={item.needed > 0 ? 'needs-funding' : 'funded'}><small>{item.needed > 0 ? 'Add' : 'Covered'}</small><strong>{item.needed > 0 ? money(item.needed) : '✓'}</strong></span></div>
+                <div className="funding-account-track"><i style={{ width: `${Math.min(100, item.ready / Math.max(item.required, 1) * 100)}%` }} /></div>
+                {expandedFundingAccount === item.account.id && <div className="funding-payment-details">{item.payments.map((payment) => <div key={payment.id}><span><strong>{payment.name}</strong><small>{shortDate(payment.next_due_date)} · {payment.payment_method || 'Bank Transfer'}</small></span><span className="funding-payment-action"><strong>−{money(payment.amount)}</strong><button type="button" disabled={payingRecurringId === payment.id} onClick={() => markFundingPaymentPaid(payment)}>{payingRecurringId === payment.id ? 'Saving…' : 'Mark paid'}</button></span></div>)}</div>}
+              </article>)}</div>
+            </section>
+          </div>
+        )}
+
+        {activeAction && (
+          <div className="modal-backdrop" role="presentation" onMouseDown={() => { if (!saving) { setActiveAction(null); setEditingTransaction(null); } }}>
+            <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="modal-heading"><div><p className="eyebrow">{editingTransaction ? 'MOVEMENT SETTINGS' : 'QUICK ENTRY'}</p><h2 id="modal-title">{editingTransaction ? 'Edit movement' : `New ${activeAction.toLowerCase()}`}</h2></div><button onClick={() => { setActiveAction(null); setEditingTransaction(null); }} aria-label="Close" disabled={saving}>×</button></div>
+              <form onSubmit={submitEntry}>
+                <label><span>Description</span><input name="description" required autoFocus defaultValue={editingTransaction?.description || (activeAction === 'Transfer' ? 'Debit funding' : '')} placeholder={activeAction === 'Transfer' ? 'Debit funding' : 'What was it for?'} /></label>
+                <div className="field-row"><label><span>Amount</span><input name="amount" required inputMode="decimal" type="number" min="0.01" step="0.01" defaultValue={editingTransaction?.amount || ''} placeholder="$0.00" /></label><label><span>{activeAction === 'Recurring' ? 'Next due date' : 'Date'}</span><input name="date" required type="date" defaultValue={editingTransaction?.date || today} /></label></div>
+                {activeAction === 'Income' ? (
+                  <label><span>To account</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || ''}><option value="" disabled>Select destination</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                ) : (
+                  <label><span>{activeAction === 'Recurring' ? 'Pay from' : 'From account'}</span><select name="fromAccountId" required defaultValue={editingTransaction?.from_account_id || (activeAction === 'Transfer' ? safetyId : '')}><option value="" disabled>Select an account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                )}
+                {activeAction === 'Transfer' && <label><span>To account</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || debitId}><option value="" disabled>Select destination</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
+                {activeAction === 'Income' && <label><span>Income type</span><select name="category" required defaultValue={editingTransaction?.category || ''}><option value="" disabled>Select an income type</option><option>Transfer Received</option><option>Salary</option><option>Interest</option><option>Refund</option><option>Other</option></select></label>}
+                {(activeAction === 'Expense' || activeAction === 'Recurring') && <label><span>Category</span><select name="category" required defaultValue={editingTransaction?.category || ''}><option value="" disabled>Select a category</option><option>Food</option><option>Transportation</option><option>Shopping</option><option>Personal</option><option>Alcohol</option><option>Entertainment</option><option>Subscriptions</option><option>Utilities</option><option>Home</option><option>Health</option><option>Insurance</option><option>Debt</option><option>Other</option></select></label>}
+                {activeAction !== 'Income' && <label><span>Payment method</span><select name="paymentMethod" required defaultValue={editingTransaction?.payment_method || (activeAction === 'Transfer' ? 'Bank Transfer' : '')}><option value="" disabled>Select a method</option><option>Debit Card</option><option>Bank Transfer</option><option>Deuna</option><option>Automatic Debit</option><option>Cash</option></select></label>}
+                {error && <small className="form-error" role="alert">{error}</small>}
+                <button className="save-button" type="submit" disabled={saving}>{saving ? 'Saving…' : editingTransaction ? 'Save changes' : `Save ${activeAction.toLowerCase()}`}</button>
+                <small className="demo-note">Private data — visible only when signed in to your Doryc account.</small>
+              </form>
+            </section>
+          </div>
+        )}
+        {cardModal && <div className="modal-backdrop" role="presentation" onMouseDown={() => !saving && setCardModal(null)}>
+          <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="card-modal-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-heading"><div><p className="eyebrow">{cardModal === 'account' ? 'ACCOUNT SETUP' : cardModal === 'bankLoan' ? 'BANK DEBT' : cardModal === 'loan' || cardModal === 'loanPayment' || cardModal === 'loanIncrease' ? 'PERSONAL IOU' : 'CREDIT CONTROL'}</p><h2 id="card-modal-title">{cardModal === 'account' ? selectedAccountId ? 'Edit bank account' : 'Add bank account' : cardModal === 'bankLoan' ? 'Add bank loan' : cardModal === 'card' ? 'Add credit card' : cardModal === 'statement' ? 'Card settings' : cardModal === 'loan' ? 'Track borrowed money' : cardModal === 'loanPayment' ? 'Record loan payment' : cardModal === 'loanIncrease' ? 'Add to existing debt' : cardModal === 'cardPayment' ? 'Pay credit card' : 'New card purchase'}</h2></div><button onClick={() => { setCardModal(null); setSelectedAccountId(''); }} aria-label="Close" disabled={saving}>×</button></div>
+            <form onSubmit={submitCardEntry}>
+              {cardModal === 'account' ? <>
+                <label><span>Account name</span><input name="name" required autoFocus defaultValue={data.accounts.find((account) => account.id === selectedAccountId)?.name || ''} placeholder="Produbanco Savings" /></label>
+                <label><span>Bank</span><select name="bank" required defaultValue={data.accounts.find((account) => account.id === selectedAccountId)?.bank || 'Pichincha'}><option>Pichincha</option><option>Produbanco</option><option>Pacifico</option><option>Guayaquil</option></select></label>
+                <div className="field-row"><label><span>Account type</span><select name="accountType" required defaultValue={data.accounts.find((account) => account.id === selectedAccountId)?.accountType || 'Savings'}><option>Savings</option><option>Checking</option><option>Debit</option><option>Cash</option></select></label><label><span>Starting balance</span><input name="balance" required type="number" step="0.01" defaultValue={data.accounts.find((account) => account.id === selectedAccountId)?.startingBalance ?? 0} /></label></div>
+              </> : cardModal === 'bankLoan' ? <>
+                <label><span>Loan name</span><input name="name" required autoFocus placeholder="Pichincha Preciso" /></label>
+                <label><span>Bank</span><select name="bank" required defaultValue=""><option value="" disabled>Select bank</option><option>Pichincha</option><option>Produbanco</option><option>Pacifico</option><option>Guayaquil</option></select></label>
+                <div className="field-row"><label><span>Outstanding balance</span><input name="outstandingBalance" required type="number" min="0" step="0.01" placeholder="2365.14" /></label><label><span>Monthly installment</span><input name="installment" required type="number" min="0.01" step="0.01" placeholder="113.69" /></label></div>
+                <label><span>Next payment</span><input name="nextDueDate" required type="date" /></label>
+                <div className="field-row"><label><span>Installments paid</span><input name="paidInstallments" required type="number" min="0" placeholder="23" /></label><label><span>Total installments</span><input name="totalInstallments" required type="number" min="1" placeholder="48" /></label></div>
+                <label><span>Pay from account (optional)</span><select name="payFromAccountId" defaultValue=""><option value="">Choose later</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+              </> : cardModal === 'card' ? <>
+                <label><span>Card name</span><input name="name" required autoFocus placeholder="Visa Gold" /></label>
+                <label><span>Bank</span><select name="bank" required defaultValue="Pichincha"><option>Pichincha</option><option>Produbanco</option><option>Pacifico</option><option>Guayaquil</option></select></label>
+                <div className="field-row"><label><span>Network</span><select name="network" required defaultValue="Visa"><option>Visa</option><option>Mastercard</option><option>Discover</option><option>Amex</option><option>Other</option></select></label><label><span>Pay from account</span><select name="payFromAccountId" defaultValue=""><option value="">Choose later</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label></div>
+                <div className="field-row"><label><span>Credit limit</span><input name="creditLimit" required type="number" min="1" step="0.01" placeholder="3300.00" /></label><label><span>Currently used</span><input name="openingUsed" required type="number" min="0" step="0.01" placeholder="1340.76" /></label></div>
+                <div className="field-row"><label><span>Current statement due (optional)</span><input name="currentStatement" type="number" min="0" step="0.01" defaultValue="0" /></label><label><span>Statement day</span><input name="statementDay" type="number" min="1" max="31" placeholder="25" /></label></div><label><span>Payment day</span><input name="paymentDay" type="number" min="1" max="31" placeholder="15" /></label>
+                <small className="rate-note">The estimated interest rate is assigned automatically from the selected bank&apos;s current consumer-credit reference.</small>
+              </> : cardModal === 'statement' ? <><label><span>Credit card</span><select name="creditCardId" required defaultValue={selectedCardId || data.creditCards[0]?.id || ''}>{data.creditCards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}</select></label><label><span>Statement amount due (optional)</span><input name="currentStatement" autoFocus type="number" min="0" step="0.01" defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.currentStatement ?? 0} placeholder="0.00" /></label><div className="field-row"><label><span>Credit limit</span><input name="creditLimit" type="number" min="1" step="0.01" defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.creditLimit} /></label><label><span>Statement day</span><input name="statementDay" type="number" min="1" max="31" defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.statementDay || ''} /></label></div><div className="field-row"><label><span>Payment day</span><input name="paymentDay" type="number" min="1" max="31" defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.paymentDay || ''} /></label><label><span>Network</span><select name="network" defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.network || 'Visa'}><option>Visa</option><option>Mastercard</option><option>Discover</option><option>Amex</option><option>Other</option></select></label></div><label><span>Pay from account</span><select name="payFromAccountId" required defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.payFromAccountId || ''}><option value="" disabled>Select account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label></> : cardModal === 'loan' ? <><label><span>Direction</span><select name="direction" required defaultValue="i_owe"><option value="i_owe">Someone lent me money — I owe</option><option value="owed_to_me">I lent money — they owe me</option></select></label><label><span>Person</span><input name="personName" required autoFocus placeholder="Friend or family member" /></label><label><span>Account involved</span><select name="accountId" required defaultValue=""><option value="" disabled>Select account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><div className="field-row"><label><span>Amount</span><input name="amount" required type="number" min="0.01" step="0.01" /></label><label><span>Due date (optional)</span><input name="dueDate" type="date" /></label></div><label><span>Note (optional)</span><input name="note" placeholder="What was the money for?" /></label></> : cardModal === 'cardPayment' ? <><input type="hidden" name="creditCardId" value={selectedCardId} /><label><span>Pay from account</span><select name="fromAccountId" required defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.payFromAccountId || ''}><option value="" disabled>Select account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><div className="field-row"><label><span>Amount</span><input name="amount" required autoFocus type="number" min="0.01" step="0.01" defaultValue={data.creditCards.find((card) => card.id === selectedCardId)?.currentStatement || ''} /></label><label><span>Date</span><input name="date" required type="date" defaultValue={today} /></label></div><label><span>Note</span><input name="note" placeholder="Statement payment" /></label></> : cardModal === 'loanPayment' ? <><input type="hidden" name="personalLoanId" value={selectedCardId} /><label><span>Account</span><select name="accountId" required defaultValue={data.personalLoans.find((loan) => loan.id === selectedCardId)?.accountId || ''}><option value="" disabled>Select account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><div className="field-row"><label><span>Amount</span><input name="amount" required autoFocus type="number" min="0.01" step="0.01" defaultValue={(data.personalLoans.find((loan) => loan.id === selectedCardId)?.amount || 0) - (data.personalLoans.find((loan) => loan.id === selectedCardId)?.paid || 0)} /></label><label><span>Date</span><input name="date" required type="date" defaultValue={today} /></label></div></> : cardModal === 'loanIncrease' ? <><input type="hidden" name="personalLoanId" value={selectedCardId} /><p className="loan-modal-summary">Add more to {data.personalLoans.find((loan) => loan.id === selectedCardId)?.personName}&apos;s existing balance.</p><label><span>Account involved</span><select name="accountId" required defaultValue={data.personalLoans.find((loan) => loan.id === selectedCardId)?.accountId || ''}><option value="" disabled>Select account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><div className="field-row"><label><span>Additional amount</span><input name="amount" required autoFocus type="number" min="0.01" step="0.01" /></label><label><span>Date</span><input name="date" required type="date" defaultValue={today} /></label></div></> : <>
+                <label><span>Credit card</span><select name="creditCardId" required defaultValue={selectedCardId || data.creditCards[0]?.id || ''}>{data.creditCards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}</select></label>
+                <label><span>Description</span><input name="description" required autoFocus placeholder="What did you buy?" /></label>
+                <div className="field-row"><label><span>Amount</span><input name="amount" required type="number" min="0.01" step="0.01" /></label><label><span>Date</span><input name="date" required type="date" defaultValue={today} /></label></div>
+                <label><span>Category</span><select name="category" required defaultValue=""><option value="" disabled>Select a category</option><option>Food</option><option>Transportation</option><option>Shopping</option><option>Personal</option><option>Health</option><option>Entertainment</option><option>Other</option></select></label>
+                <div className="field-row"><label><span>Installments</span><select name="installmentMonths" defaultValue="1"><option value="1">Current — one payment</option><option value="2">2 months</option><option value="3">3 months</option><option value="6">6 months</option><option value="9">9 months</option><option value="12">12 months</option><option value="18">18 months</option><option value="24">24 months</option><option value="36">36 months</option></select></label><label><span>Interest</span><select name="withInterest" defaultValue="false"><option value="false">Without interest</option><option value="true">With interest</option></select></label></div>
+              </>}
+              {error && <small className="form-error" role="alert">{error}</small>}
+              <button className="save-button" type="submit" disabled={saving}>{saving ? 'Saving…' : cardModal === 'account' ? selectedAccountId ? 'Save account changes' : 'Add account' : cardModal === 'bankLoan' ? 'Add bank loan' : cardModal === 'card' ? 'Add credit card' : cardModal === 'statement' ? 'Save card settings' : cardModal === 'loan' ? 'Save personal IOU' : cardModal === 'cardPayment' ? 'Save card payment' : cardModal === 'loanPayment' ? 'Save loan payment' : cardModal === 'loanIncrease' ? 'Add to debt' : 'Save card purchase'}</button>
+              <small className="demo-note">Payment values are estimates. Your bank statement remains the final source.</small>
+            </form>
+          </section>
+        </div>}
+        {celebrationKey > 0 && <div className="money-rain" aria-hidden="true" key={celebrationKey}>{Array.from({ length: 30 }, (_, index) => <i className="money-particle" key={index} data-drift={(index % 2 ? 1 : -1) * (24 + index % 7 * 11)} data-spin={(index % 2 ? 1 : -1) * (220 + index * 19)} data-scale={.72 + index % 5 * .12} style={{ left: `${3 + (index * 31) % 94}%` }}>{index % 5 === 0 ? '$' : index % 4 === 0 ? '✦' : '¢'}</i>)}</div>}
+        {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
+      </section>
+    </main>
+  );
+}
