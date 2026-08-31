@@ -39,7 +39,7 @@ function ChevronIcon({ open = false }: { open?: boolean }) { return <svg classNa
 function PiggyBankIcon() { return <svg className="piggy-bank-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5.3 10.1A6.8 6.8 0 0 1 12 5.5h2.2l2.4-1.8.5 3a6.1 6.1 0 0 1 1.5 2.1H21v4h-2.2a6.8 6.8 0 0 1-2.4 3l.1 2.5h-3l-.5-1.6H9.2l-.7 1.6h-3l.5-3A6.4 6.4 0 0 1 4 11.1"/><path d="M9.5 5.9c.5-1.1 1.6-1.8 3-1.8M13.4 8.5h2.4"/><circle cx="15.6" cy="9.8" r=".6" fill="currentColor" stroke="none"/><path d="M4 11.2c-1.2 0-1.8-.6-1.8-1.4 0-.6.4-1 1-1"/></svg>; }
 
 const initialData: DashboardData = {
-  name: 'Richard', income: 0, spent: 0, transactions: [], creditCards: [], cardPurchases: [], cardPayments: [], personalLoans: [], personalLoanPayments: [], bankLoans: [], onboardingCompleted: true,
+  name: '', income: 0, spent: 0, transactions: [], creditCards: [], cardPurchases: [], cardPayments: [], personalLoans: [], personalLoanPayments: [], bankLoans: [], onboardingCompleted: true,
   accounts: [],
   recurring: [],
 };
@@ -627,7 +627,7 @@ export default function Home() {
 
       <section className={`dashboard ${loading ? 'is-loading' : ''}`} id="top" aria-busy={loading}>
         <header className="topbar" data-reveal>
-          <div><p className="eyebrow">{activeView === 'overview' ? currentDateLabel : 'DORYC'}</p><h1>{activeView === 'overview' ? <><span className="greeting-word">{greeting},</span>{' '}<span className="greeting-word greeting-name">{data.name}.</span></> : viewTitles[activeView]}</h1></div>
+          <div><p className="eyebrow">{activeView === 'overview' ? currentDateLabel : 'DORYC'}</p><h1>{activeView === 'overview' ? <><span className="greeting-word">{greeting},</span>{' '}<span className="greeting-word greeting-name">{loading ? '…' : `${data.name || 'there'}.`}</span></> : viewTitles[activeView]}</h1></div>
           <div className="topbar-actions"><NotificationCenter items={notifications} language={language} onNavigate={navigateTo} open={openUtility === 'notifications'} onToggle={() => setOpenUtility((v) => v === 'notifications' ? null : 'notifications')} onClose={() => setOpenUtility(null)} /><ExperienceSettings value={preferences} language={language} onChange={setPreferences} open={openUtility === 'settings'} onToggle={() => setOpenUtility((v) => v === 'settings' ? null : 'settings')} onStartTour={startTour} /><LanguageSelector language={language} onChange={setLanguage} /><button className="icon-button" type="button" onClick={signOut} aria-label={tr('Sign out', 'Cerrar sesión')} title={tr('Sign out', 'Cerrar sesión')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4m4-4H9"/></svg><span className="button-tooltip">{tr('Sign out', 'Cerrar sesión')}</span></button></div>
         </header>
         {error && !activeAction && <div className="page-error" role="alert"><span><strong>{tr('Connection interrupted', 'Conexión interrumpida')}</strong><small>{error}</small></span><button type="button" onClick={() => { setLoading(true); setError(''); setLoadAttempt((attempt) => attempt + 1); }}>{tr('Try again', 'Reintentar')}</button></div>}
@@ -700,7 +700,7 @@ export default function Home() {
         </section>
 
         <section className="savings-panel panel" id="savings" data-reveal hidden={activeView !== 'accounts'}>
-          <div className="savings-heading"><div><p className="eyebrow">SAVINGS</p><h2>Produbanco savings</h2><p>Your dedicated Produbanco savings account.</p></div><div><small>Total saved</small><strong>{money(savingsTotal)}</strong></div></div>
+          <div className="savings-heading"><div><p className="eyebrow">SAVINGS</p><h2>{savingsAccounts.length === 1 ? savingsAccounts[0].name : tr('Savings accounts', 'Cuentas de ahorro')}</h2><p>{savingsAccounts.length === 1 ? `${savingsAccounts[0].bank} · ${tr('Savings account', 'Cuenta de ahorros')}.` : tr('Your dedicated savings accounts.', 'Tus cuentas de ahorro.')}</p></div><div><small>{tr('Total saved', 'Total ahorrado')}</small><strong>{money(savingsTotal)}</strong></div></div>
           <div className="savings-grid">{savingsAccounts.map((account) => {
             const share = savingsTotal > 0 ? account.balance / savingsTotal * 100 : 0;
             return <article className="savings-account" key={account.id}><div><span><PiggyBankIcon /></span><p><strong>{account.name}</strong><small>{account.bank} · Savings</small></p><strong>{money(account.balance)}</strong></div><div className="savings-track"><i style={{ width: `${savingsTotal > 0 ? Math.max(3, share) : 0}%` }} /><b className="savings-glow" aria-hidden="true" /></div><div><small>{share.toFixed(0)}% of savings</small><small>{account.balance > 0 ? 'Earning reserve' : 'Ready for your first deposit'}</small></div></article>;
