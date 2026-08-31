@@ -6,8 +6,19 @@ import { createClient } from '../lib/supabase/client';
 import LogoMark from './components/LogoMark';
 import DashboardSidebar, { type DashboardView } from './components/DashboardSidebar';
 import LanguageSelector from './components/LanguageSelector';
+import ExperienceSettings from './components/ExperienceSettings';
+import ConfirmDialog from './components/ConfirmDialog';
 import { cardPurchaseDueDate, estimateCardPayment, nextMonthlyDate } from '../lib/finance';
 import { useLanguage } from '../lib/useLanguage';
+import { useExperiencePreferences } from '../lib/useExperiencePreferences';
+import { useConfirmDialog } from '../lib/useConfirmDialog';
+import { calculateFinancialHealth } from '../modules/insights/domain/financialHealth';
+import { buildFinanceNotifications } from '../modules/insights/domain/notifications';
+import FinancialHealthCard from '../modules/insights/presentation/FinancialHealthCard';
+import NotificationCenter from '../modules/insights/presentation/NotificationCenter';
+import MonthlyClose from '../modules/insights/presentation/MonthlyClose';
+import MoneyCalendar from '../modules/calendar/presentation/MoneyCalendar';
+import { salaryPaymentWindow } from '../modules/recurring-payments/domain/salarySchedule';
 
 type Account = { id: string; name: string; bank: string; accountType: string; startingBalance: number; balance: number };
 type Transaction = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount: number; date: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; debtMovement?: boolean };
@@ -36,17 +47,11 @@ const money = (value: number) => value.toLocaleString('en-US', { style: 'currenc
 const formatShortDate = (value: string, locale: string) => new Date(`${value}T12:00:00`).toLocaleDateString(locale, { month: 'short', day: '2-digit' });
 function incomeTiming(item: Recurring, language: 'en' | 'es') {
   const locale = language === 'es' ? 'es-EC' : 'en-US';
-  const date = new Date(`${item.next_due_date}T12:00:00`);
   const salary = item.category === 'Salary' || /salary|sueldo/i.test(item.name);
   if (!salary) return formatShortDate(item.next_due_date, locale);
-  const day = date.getDay();
-  if (day !== 0 && day !== 6) return `${language === 'es' ? 'fin de mes' : 'month end'} · ${formatShortDate(item.next_due_date, locale)}`;
-  const friday = new Date(date);
-  friday.setDate(date.getDate() - (day === 0 ? 2 : 1));
-  const monday = new Date(date);
-  monday.setDate(date.getDate() + (day === 0 ? 1 : 2));
-  const format = (value: Date) => value.toLocaleDateString(locale, { month: 'short', day: '2-digit' });
-  return `${language === 'es' ? 'ventana de pago' : 'pay window'} · ${format(friday)} – ${format(monday)}`;
+  const window = salaryPaymentWindow(item.next_due_date);
+  if (!window.flexible) return `${language === 'es' ? 'fin de mes' : 'month end'} · ${formatShortDate(item.next_due_date, locale)}`;
+  return `${language === 'es' ? 'ventana de pago' : 'pay window'} · ${formatShortDate(window.earliest, locale)} – ${formatShortDate(window.latest, locale)}`;
 }
 
 async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
@@ -71,6 +76,8 @@ async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = 
 export default function Home() {
   const root = useRef<HTMLElement>(null);
   const { language, setLanguage } = useLanguage();
+  const { preferences, setPreferences } = useExperiencePreferences();
+  const confirmDialog = useConfirmDialog();
   const tr = (en: string, es: string) => language === 'es' ? es : en;
   const shortDate = (value: string) => formatShortDate(value, language === 'es' ? 'es-EC' : 'en-US');
   const [currentTime, setCurrentTime] = useState(() => new Date());
@@ -100,6 +107,7 @@ export default function Home() {
   const [cardModal, setCardModal] = useState<'account' | 'card' | 'purchase' | 'statement' | 'loan' | 'cardPayment' | 'loanPayment' | 'loanIncrease' | 'bankLoan' | null>(null);
   const [selectedCardId, setSelectedCardId] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [openUtility, setOpenUtility] = useState<'notifications' | 'settings' | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setCurrentTime(new Date()), 60_000);
@@ -267,6 +275,14 @@ export default function Home() {
   const debitId = data.accounts.find((account) => account.name === 'Pichincha Debit')?.id || '';
   const savingsAccounts = data.accounts.filter((account) => account.name === 'Produbanco Savings');
   const savingsTotal = savingsAccounts.reduce((sum, account) => sum + account.balance, 0);
+  const totalCreditLimit = data.creditCards.reduce((sum, card) => sum + card.creditLimit, 0);
+  const totalCreditUsed = cardSummaries.reduce((sum, summary) => sum + summary.used, 0);
+  const overdueCount = fundingPayments.filter((payment) => payment.next_due_date < today).length;
+  const financialHealth = calculateFinancialHealth({ available: totalBalance, expectedIncome: expectedIncomeTotal, commitments: outstanding, savings: savingsTotal, creditUsed: totalCreditUsed, creditLimit: totalCreditLimit, overdueCount });
+  const nextDueDate = fundingPayments.map((payment) => payment.next_due_date).sort()[0] || null;
+  const nextDueDays = nextDueDate ? Math.ceil((new Date(`${nextDueDate}T12:00:00`).getTime() - new Date(`${today}T12:00:00`).getTime()) / 86_400_000) : null;
+  const notifications = buildFinanceNotifications({ fundingNeeded: totalFundingNeeded, creditUtilization: totalCreditLimit ? totalCreditUsed / totalCreditLimit * 100 : 0, nextDueDays, potentialSavings: Math.max(projectedBalance, 0) });
+  const debtPaidThisMonth = data.personalLoanPayments.filter((payment) => payment.entryType === 'payment' && payment.date.startsWith(today.slice(0, 7))).reduce((sum, payment) => sum + payment.amount, 0) + data.cardPayments.filter((payment) => payment.date.startsWith(today.slice(0, 7))).reduce((sum, payment) => sum + payment.amount, 0);
   const categorySpending = useMemo(() => {
     const month = today.slice(0, 7);
     const totals = new Map<string, { amount: number; count: number }>();
@@ -402,7 +418,7 @@ export default function Home() {
   }
 
   async function deleteTransaction(item: Transaction) {
-    if (!window.confirm(`Delete ${item.description}? This will update the account balance.`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete movement?', '¿Eliminar movimiento?'), detail: tr(`${item.description} will be removed and the account balance will be recalculated.`, `Se eliminará ${item.description} y se recalculará el saldo de la cuenta.`) })) return;
     const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'transaction', id: item.id }) });
     const result = await response.json();
     if (response.ok) { setData(result); setToast('Movement deleted'); window.setTimeout(() => setToast(''), 2400); }
@@ -410,7 +426,7 @@ export default function Home() {
   }
 
   async function deleteAccount(account: Account) {
-    if (!window.confirm(`Delete ${account.name}? This is only possible when it has no linked movements or payments.`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete account?', '¿Eliminar cuenta?'), detail: tr(`${account.name} can only be deleted when it has no linked movements or payments.`, `${account.name} solo puede eliminarse si no tiene movimientos o pagos vinculados.`) })) return;
     const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'account', id: account.id }) });
     const result = await response.json();
     if (response.ok) { setData(result); setToast('Account deleted'); window.setTimeout(() => setToast(''), 2400); }
@@ -418,7 +434,7 @@ export default function Home() {
   }
 
   async function deleteBankLoan(loan: BankLoan) {
-    if (!window.confirm(`Delete ${loan.name}?`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete bank loan?', '¿Eliminar préstamo bancario?'), detail: tr(`${loan.name} and its planning information will be removed.`, `Se eliminará ${loan.name} y su información de planificación.`) })) return;
     const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'bankLoan', id: loan.id }) });
     const result = await response.json();
     if (response.ok) { setData(result); setToast('Bank loan deleted'); window.setTimeout(() => setToast(''), 2400); }
@@ -426,7 +442,7 @@ export default function Home() {
   }
 
   async function deleteRecurring(payment: Recurring) {
-    if (!window.confirm(`Delete the recurring payment ${payment.name}?`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete recurring entry?', '¿Eliminar registro recurrente?'), detail: tr(`${payment.name} will no longer appear in future plans.`, `${payment.name} dejará de aparecer en los planes futuros.`) })) return;
     const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'recurring', id: payment.id }) });
     const result = await response.json();
     if (response.ok) { setData(result); setToast('Recurring payment deleted'); window.setTimeout(() => setToast(''), 2400); }
@@ -454,7 +470,7 @@ export default function Home() {
   }
 
   async function deleteCreditCard(card: CreditCard) {
-    if (!window.confirm(`Delete ${card.name}? Its card purchases will also be removed.`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete credit card?', '¿Eliminar tarjeta?'), detail: tr(`${card.name} and all its registered purchases will be removed.`, `Se eliminarán ${card.name} y todas sus compras registradas.`) })) return;
     setSaving(true); setError('');
     try {
       const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'creditCard', id: card.id }) });
@@ -466,7 +482,7 @@ export default function Home() {
   }
 
   async function deleteCardPurchase(purchase: CardPurchase) {
-    if (!window.confirm(`Delete ${purchase.description}?`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete card purchase?', '¿Eliminar compra?'), detail: tr(`${purchase.description} will be removed from the card forecast.`, `${purchase.description} se eliminará del pronóstico de la tarjeta.`) })) return;
     const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'cardPurchase', id: purchase.id }) });
     const result = await response.json();
     if (response.ok) { setData(result); setToast('Card purchase deleted'); window.setTimeout(() => setToast(''), 2400); }
@@ -474,7 +490,7 @@ export default function Home() {
   }
 
   async function deletePersonalLoan(loan: PersonalLoan) {
-    if (!window.confirm(`Delete the IOU with ${loan.personName}?`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete personal IOU?', '¿Eliminar deuda personal?'), detail: tr(`The balance and history with ${loan.personName} will be removed.`, `Se eliminarán el saldo y el historial con ${loan.personName}.`) })) return;
     const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'personalLoan', id: loan.id }) });
     const result = await response.json();
     if (response.ok) { setData(result); setToast('Personal IOU deleted'); window.setTimeout(() => setToast(''), 2400); }
@@ -482,7 +498,7 @@ export default function Home() {
   }
 
   async function deleteLoanPayment(payment: PersonalLoanPayment) {
-    if (!window.confirm(`Delete this ${payment.entryType === 'advance' ? 'debt addition' : 'payment'} of ${money(payment.amount)}?`)) return;
+    if (!await confirmDialog.confirm({ title: tr('Delete movement?', '¿Eliminar movimiento?'), detail: tr(`This ${payment.entryType === 'advance' ? 'debt addition' : 'payment'} of ${money(payment.amount)} will be reversed.`, `Se revertirá este ${payment.entryType === 'advance' ? 'aumento de deuda' : 'pago'} de ${money(payment.amount)}.`) })) return;
     const response = await authenticatedFetch('/api/dashboard', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'loanPayment', id: payment.id }) });
     const result = await response.json();
     if (response.ok) { setData(result); setToast(payment.entryType === 'advance' ? 'Debt addition removed' : 'Payment removed'); window.setTimeout(() => setToast(''), 2400); }
@@ -556,7 +572,7 @@ export default function Home() {
       <section className={`dashboard ${loading ? 'is-loading' : ''}`} id="top" aria-busy={loading}>
         <header className="topbar" data-reveal>
           <div><p className="eyebrow">{activeView === 'overview' ? currentDateLabel : 'DORYC'}</p><h1>{activeView === 'overview' ? <><span className="greeting-word">{greeting},</span>{' '}<span className="greeting-word greeting-name">{data.name}.</span></> : viewTitles[activeView]}</h1></div>
-          <div className="topbar-actions"><LanguageSelector language={language} onChange={setLanguage} /><button className="icon-button" type="button" onClick={signOut} aria-label={tr('Sign out', 'Cerrar sesión')} title={tr('Sign out', 'Cerrar sesión')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4m4-4H9"/></svg><span className="button-tooltip">{tr('Sign out', 'Cerrar sesión')}</span></button></div>
+          <div className="topbar-actions"><NotificationCenter items={notifications} language={language} onNavigate={navigateTo} open={openUtility === 'notifications'} onToggle={() => setOpenUtility((v) => v === 'notifications' ? null : 'notifications')} onClose={() => setOpenUtility(null)} /><ExperienceSettings value={preferences} language={language} onChange={setPreferences} open={openUtility === 'settings'} onToggle={() => setOpenUtility((v) => v === 'settings' ? null : 'settings')} /><LanguageSelector language={language} onChange={setLanguage} /><button className="icon-button" type="button" onClick={signOut} aria-label={tr('Sign out', 'Cerrar sesión')} title={tr('Sign out', 'Cerrar sesión')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4m4-4H9"/></svg><span className="button-tooltip">{tr('Sign out', 'Cerrar sesión')}</span></button></div>
         </header>
         {error && !activeAction && <div className="page-error" role="alert"><span><strong>Connection interrupted</strong><small>{error}</small></span><button type="button" onClick={() => { setLoading(true); setError(''); setLoadAttempt((attempt) => attempt + 1); }}>Try again</button></div>}
 
@@ -589,6 +605,11 @@ export default function Home() {
           <button type="button" onClick={() => navigateTo('people')}><span>↔</span><small>Money between people</small><strong>{data.personalLoans.filter((loan) => loan.status !== 'settled').length} open</strong><i>→</i></button>
         </section>
 
+        <section className="overview-wellbeing" hidden={activeView !== 'overview'}>
+          <FinancialHealthCard health={financialHealth} language={language} />
+          <MonthlyClose income={data.income} spent={data.spent} debtPaid={debtPaidThisMonth} saved={projectedBalance} language={language} />
+        </section>
+
         <section className="overview-intelligence" hidden={activeView !== 'overview'}>
           <article className={`financial-pulse ${projectedBalance < 0 ? 'warning' : ''}`}>
             <div className="pulse-heading"><span><p className="eyebrow">MONTHLY FORECAST</p><h2>{projectedBalance >= 0 ? 'This is what you could save.' : 'Your commitments exceed available income.'}</h2></span><i title={tr('Percentage of scheduled commitments covered by available money and expected income', 'Porcentaje de compromisos programados cubiertos con tu saldo e ingresos esperados')}><strong>{paymentCoverage.toFixed(0)}%</strong><small>{tr('commitments covered', 'compromisos cubiertos')}</small></i></div>
@@ -603,7 +624,7 @@ export default function Home() {
           </article>
           <article className="financial-calendar">
             <div className="calendar-heading"><span><p className="eyebrow">MONEY CALENDAR</p><h2>Next on your timeline</h2></span><button type="button" onClick={() => navigateTo('payments')}>View all →</button></div>
-            <div className="timeline-list">{financialTimeline.length ? financialTimeline.map((item, index) => <div className={`timeline-item ${item.direction}`} key={item.id}><time><strong>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { day: '2-digit' })}</strong><small>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })}</small></time><i className={index === 0 ? 'next' : ''}/><span><strong>{item.name}</strong><small>{item.kind}</small></span><b>{item.direction === 'income' ? '+' : '−'}{money(item.amount)}</b></div>) : <div className="timeline-empty"><strong>Your calendar is clear</strong><small>New scheduled payments will appear here.</small></div>}</div>
+            {financialTimeline.length ? <MoneyCalendar items={financialTimeline} language={language} /> : <div className="timeline-empty"><strong>{tr('Your calendar is clear', 'Tu calendario está libre')}</strong><small>{tr('New scheduled payments will appear here.', 'Los nuevos pagos programados aparecerán aquí.')}</small></div>}
           </article>
         </section>
 
@@ -763,6 +784,7 @@ export default function Home() {
         {celebrationKey > 0 && <div className="money-rain" aria-hidden="true" key={celebrationKey}>{Array.from({ length: 30 }, (_, index) => <i className="money-particle" key={index} data-drift={(index % 2 ? 1 : -1) * (24 + index % 7 * 11)} data-spin={(index % 2 ? 1 : -1) * (220 + index * 19)} data-scale={.72 + index % 5 * .12} style={{ left: `${3 + (index * 31) % 94}%` }}>{index % 5 === 0 ? '$' : index % 4 === 0 ? '✦' : '¢'}</i>)}</div>}
         {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
       </section>
+      <ConfirmDialog request={confirmDialog.request} language={language} onAnswer={confirmDialog.answer} />
     </main>
   );
 }

@@ -1,0 +1,6 @@
+import type { ExperiencePreferences } from '../../lib/useExperiencePreferences';
+
+export default function ExperienceSettings({ value, language, onChange, open, onToggle }: { value: ExperiencePreferences; language: 'en' | 'es'; onChange: (value: ExperiencePreferences) => void; open: boolean; onToggle: () => void }) {
+  const es = language === 'es';
+  return <div className="experience-settings"><button className="experience-trigger" type="button" aria-label={es ? 'Personalizar Doryc' : 'Customize Doryc'} aria-expanded={open} onClick={onToggle}>⚙</button>{open && <section className="experience-popover"><p className="eyebrow">{es ? 'EXPERIENCIA' : 'EXPERIENCE'}</p><h3>{es ? 'Hazlo tuyo' : 'Make it yours'}</h3><label><span>{es ? 'Tema' : 'Theme'}</span><select value={value.theme} onChange={(event) => onChange({ ...value, theme: event.target.value as ExperiencePreferences['theme'] })}><option value="forest">Forest</option><option value="midnight">Midnight</option><option value="warm">Warm</option></select></label><label><span>{es ? 'Movimiento' : 'Motion'}</span><select value={value.motion} onChange={(event) => onChange({ ...value, motion: event.target.value as ExperiencePreferences['motion'] })}><option value="full">{es ? 'Completo' : 'Full'}</option><option value="reduced">{es ? 'Reducido' : 'Reduced'}</option></select></label></section>}</div>;
+}

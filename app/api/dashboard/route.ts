@@ -1,4 +1,7 @@
 import { createClient } from '../../../lib/supabase/server';
+import { isSalary, monthEnd, nextMonthEnd, previousMonthEnd } from '../../../modules/recurring-payments/domain/salarySchedule';
+import { normalizeSalarySchedules } from '../../../modules/recurring-payments/application/normalizeSalarySchedules';
+import { SupabaseRecurringPaymentRepository } from '../../../modules/recurring-payments/infrastructure/SupabaseRecurringPaymentRepository';
 
 export const dynamic = 'force-dynamic';
 
@@ -13,20 +16,6 @@ type LoanPaymentRow = { id: string; personal_loan_id: string; account_id: string
 type BankLoanRow = { id: string; bank: string; name: string; original_amount_cents: number; outstanding_balance_cents: number; installment_cents: number; next_due_date: string; payment_day: number; total_installments: number; paid_installments: number; annual_rate: number | null; pay_from_account_id: string | null; active: boolean };
 const BANK_CARD_RATES: Record<string, number> = { pichincha: 16.77, produbanco: 16.77, pacifico: 16.77, guayaquil: 16.77 };
 
-function monthEnd(value: string, earlyMeansPrevious = false) {
-  const date = new Date(`${value}T12:00:00Z`);
-  const monthOffset = earlyMeansPrevious && date.getUTCDate() <= 3 ? 0 : 1;
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + monthOffset, 0, 12)).toISOString().slice(0, 10);
-}
-
-function nextMonthEnd(value: string) {
-  const date = new Date(`${value}T12:00:00Z`);
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 2, 0, 12)).toISOString().slice(0, 10);
-}
-
-function isSalary(item: { name?: string; category?: string | null; payment_method?: string | null }) {
-  return item.payment_method === 'Recurring Income' && (item.category === 'Salary' || /salary|sueldo/i.test(item.name || ''));
-}
 
 async function requireUser(authorization?: string | null) {
   const supabase = await createClient(authorization);
@@ -63,13 +52,7 @@ async function getDashboard(authorization?: string | null) {
   if (accountQuery.error) throw accountQuery.error;
   if (transactionQuery.error) throw transactionQuery.error;
   if (recurringQuery.error) throw recurringQuery.error;
-  const recurringRows = recurringQuery.data as RecurringRow[];
-  await Promise.all(recurringRows.filter(isSalary).map(async (income) => {
-    const normalized = monthEnd(income.next_due_date, !income.paid_this_cycle);
-    if (normalized === income.next_due_date) return;
-    const { error } = await supabase.from('recurring_payments').update({ next_due_date: normalized }).eq('id', income.id);
-    if (!error) income.next_due_date = normalized;
-  }));
+  const recurringRows = await normalizeSalarySchedules(recurringQuery.data as RecurringRow[], new SupabaseRecurringPaymentRepository(supabase));
   let cardRows = cardQuery.data as CreditCardRow[] | null;
   let cardPurchaseRows = cardPurchaseQuery.data as CardPurchaseRow[] | null;
   if (cardQuery.error) console.error('Credit card query failed:', cardQuery.error.message);
@@ -410,7 +393,7 @@ export async function PATCH(request: Request) {
       const { error: deleteError } = await supabase.from('transactions').delete().eq('id', latestTransaction.id);
       if (deleteError) throw deleteError;
       const previousDue = new Date(`${payment.next_due_date}T12:00:00Z`);
-      if (isSalary(payment)) previousDue.setTime(new Date(Date.UTC(previousDue.getUTCFullYear(), previousDue.getUTCMonth(), 0, 12)).getTime());
+      if (isSalary(payment)) previousDue.setTime(new Date(`${previousMonthEnd(payment.next_due_date)}T12:00:00Z`).getTime());
       else if (payment.frequency === 'Weekly') previousDue.setUTCDate(previousDue.getUTCDate() - 7);
       else if (payment.frequency === 'Yearly') previousDue.setUTCFullYear(previousDue.getUTCFullYear() - 1);
       else previousDue.setUTCMonth(previousDue.getUTCMonth() - 1);
