@@ -1,13 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <linearGradient id="doryc-mask" x1="80" y1="50" x2="440" y2="470" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#dcffb2"/>
-      <stop offset=".52" stop-color="#bdf477"/>
-      <stop offset="1" stop-color="#8dcc52"/>
-    </linearGradient>
-  </defs>
-  <rect width="512" height="512" fill="#0b0f0c"/>
-  <rect x="64" y="64" width="384" height="384" rx="112" fill="url(#doryc-mask)"/>
-  <path fill="#101510" fill-rule="evenodd" d="M166 139h113c79 0 127 47 127 117s-48 117-127 117H166V139Zm76 58v118h35c38 0 59-21 59-59s-21-59-59-59h-35Z"/>
-  <circle cx="197" cy="256" r="19" fill="#bdf477"/>
+  <rect width="512" height="512" fill="#f7f8f5"/>
+  <g fill="none" stroke="#102033" stroke-width="34" stroke-linecap="round">
+    <path d="M164 128h144"/>
+    <path d="M132 176h224"/>
+    <path d="M112 224h272"/>
+    <path d="M112 320h272"/>
+    <path d="M132 368h224"/>
+    <path d="M164 416h144"/>
+  </g>
+  <path d="M104 272h288" fill="none" stroke="#35b9a8" stroke-width="38" stroke-linecap="round"/>
 </svg>

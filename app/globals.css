@@ -8,9 +8,9 @@ button:disabled { cursor:not-allowed; }
 .app-shell { min-height:100vh; display:grid; grid-template-columns:210px 1fr; }
 .sidebar { position:fixed; inset:0 auto 0 0; width:210px; padding:30px 18px 22px; display:flex; flex-direction:column; align-items:stretch; background:#111511; color:#f8f8f1; z-index:5; }
 .brand { display:flex; align-items:center; gap:12px; color:inherit; text-decoration:none; font-size:20px; font-weight:760; letter-spacing:-.04em; }
-.brand-mark { position:relative; display:grid; place-items:center; width:38px; aspect-ratio:1; border:1px solid rgba(218,255,174,.52); border-radius:13px; background:radial-gradient(circle at 28% 18%,#dcffb2,var(--mint) 46%,#78ae47); color:#111511; box-shadow:0 8px 24px rgba(130,190,75,.18),inset 0 1px 1px rgba(255,255,255,.65); overflow:hidden; }
-.brand-mark:after { content:""; position:absolute; inset:-45% -80%; background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.5) 49%,transparent 60%); transform:translateX(-45%); animation:logo-shine 4.6s 1.2s ease-in-out infinite; }
-.brand-mark svg { position:relative; z-index:1; width:31px; height:31px; overflow:visible; }.logo-coin { fill:#121912; }.logo-cut { fill:var(--mint); }
+.brand-mark { position:relative; display:grid; place-items:center; width:38px; aspect-ratio:1; border:1px solid rgba(255,255,255,.72); border-radius:13px; background:#f7f8f5; color:#102033; box-shadow:0 8px 24px rgba(0,0,0,.2),inset 0 1px 1px rgba(255,255,255,.9); overflow:hidden; }
+.brand-mark:after { content:""; position:absolute; inset:-45% -80%; background:linear-gradient(105deg,transparent 38%,rgba(255,255,255,.7) 49%,transparent 60%); transform:translateX(-45%); animation:logo-shine 4.6s 1.2s ease-in-out infinite; }
+.brand-mark svg { position:relative; z-index:1; width:31px; height:31px; overflow:visible; }.logo-lines,.logo-accent { fill:none; stroke-linecap:round; }.logo-lines { stroke:#102033; stroke-width:2.5; }.logo-accent { stroke:#35b9a8; stroke-width:2.8; }
 @keyframes logo-shine { 0%,72% { transform:translateX(-55%); } 88%,100% { transform:translateX(55%); } }
 .sidebar-brand { padding:0 10px; border:0; background:none; cursor:pointer; }
 .sidebar nav { margin-top:52px; display:grid; gap:7px; }
