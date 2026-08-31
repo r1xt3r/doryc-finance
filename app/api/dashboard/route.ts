@@ -13,6 +13,21 @@ type LoanPaymentRow = { id: string; personal_loan_id: string; account_id: string
 type BankLoanRow = { id: string; bank: string; name: string; original_amount_cents: number; outstanding_balance_cents: number; installment_cents: number; next_due_date: string; payment_day: number; total_installments: number; paid_installments: number; annual_rate: number | null; pay_from_account_id: string | null; active: boolean };
 const BANK_CARD_RATES: Record<string, number> = { pichincha: 16.77, produbanco: 16.77, pacifico: 16.77, guayaquil: 16.77 };
 
+function monthEnd(value: string, earlyMeansPrevious = false) {
+  const date = new Date(`${value}T12:00:00Z`);
+  const monthOffset = earlyMeansPrevious && date.getUTCDate() <= 3 ? 0 : 1;
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + monthOffset, 0, 12)).toISOString().slice(0, 10);
+}
+
+function nextMonthEnd(value: string) {
+  const date = new Date(`${value}T12:00:00Z`);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 2, 0, 12)).toISOString().slice(0, 10);
+}
+
+function isSalary(item: { name?: string; category?: string | null; payment_method?: string | null }) {
+  return item.payment_method === 'Recurring Income' && (item.category === 'Salary' || /salary|sueldo/i.test(item.name || ''));
+}
+
 async function requireUser(authorization?: string | null) {
   const supabase = await createClient(authorization);
   const bearer = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -48,6 +63,13 @@ async function getDashboard(authorization?: string | null) {
   if (accountQuery.error) throw accountQuery.error;
   if (transactionQuery.error) throw transactionQuery.error;
   if (recurringQuery.error) throw recurringQuery.error;
+  const recurringRows = recurringQuery.data as RecurringRow[];
+  await Promise.all(recurringRows.filter(isSalary).map(async (income) => {
+    const normalized = monthEnd(income.next_due_date, !income.paid_this_cycle);
+    if (normalized === income.next_due_date) return;
+    const { error } = await supabase.from('recurring_payments').update({ next_due_date: normalized }).eq('id', income.id);
+    if (!error) income.next_due_date = normalized;
+  }));
   let cardRows = cardQuery.data as CreditCardRow[] | null;
   let cardPurchaseRows = cardPurchaseQuery.data as CardPurchaseRow[] | null;
   if (cardQuery.error) console.error('Credit card query failed:', cardQuery.error.message);
@@ -127,7 +149,7 @@ async function getDashboard(authorization?: string | null) {
     name: String(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Richard').split(' ')[0],
     accounts,
     transactions: cashFlowTransactions.map((tx) => ({ ...tx, date: tx.transaction_date, amount: tx.amount_cents / 100 })),
-    recurring: (recurringQuery.data as RecurringRow[]).map((item) => ({ ...item, amount: item.amount_cents / 100, flowType: item.payment_method === 'Recurring Income' ? 'income' : 'expense' })),
+    recurring: recurringRows.map((item) => ({ ...item, amount: item.amount_cents / 100, flowType: item.payment_method === 'Recurring Income' ? 'income' : 'expense' })),
     creditCards: (cardRows || []).map((card) => ({
       id: card.id, name: card.name, bank: card.bank, creditLimit: card.credit_limit_cents / 100,
       openingUsed: card.opening_used_cents / 100, currentStatement: card.current_statement_cents / 100,
@@ -200,7 +222,8 @@ export async function POST(request: Request) {
       const flowType = body.flowType === 'income' ? 'income' : 'expense';
       const accountId = flowType === 'income' ? body.toAccountId : body.fromAccountId;
       if (!body.id || !body.description?.trim() || amountCents <= 0 || !body.date || !accountId) return Response.json({ error: 'Complete the recurring payment information.' }, { status: 400 });
-      const { error: updateError } = await supabase.from('recurring_payments').update({ name: body.description.trim(), amount_cents: amountCents, next_due_date: body.date, pay_from_account_id: accountId, category: body.category || null, payment_method: flowType === 'income' ? 'Recurring Income' : body.paymentMethod || null }).eq('id', body.id);
+      const nextDueDate = flowType === 'income' && (body.category === 'Salary' || /salary|sueldo/i.test(body.description)) ? monthEnd(body.date) : body.date;
+      const { error: updateError } = await supabase.from('recurring_payments').update({ name: body.description.trim(), amount_cents: amountCents, next_due_date: nextDueDate, pay_from_account_id: accountId, category: body.category || null, payment_method: flowType === 'income' ? 'Recurring Income' : body.paymentMethod || null }).eq('id', body.id);
       if (updateError) throw updateError;
       return Response.json(await getDashboard(authorization));
     }
@@ -347,8 +370,9 @@ export async function POST(request: Request) {
     if (type === 'transfer' && body.fromAccountId === body.toAccountId) return Response.json({ error: 'Choose two different accounts.' }, { status: 400 });
     if ((type === 'expense' || type === 'transfer') && !await hasFunds(body.fromAccountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
 
+    const recurringDate = recurringFlow === 'income' && (body.category === 'Salary' || /salary|sueldo/i.test(body.description)) ? monthEnd(body.date) : body.date;
     const result = type === 'recurring'
-      ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: body.date, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null })
+      ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: recurringDate, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null })
       : await supabase.from('transactions').insert({ user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null });
     if (result.error) throw result.error;
     return Response.json(await getDashboard(authorization), { status: 201 });
@@ -386,7 +410,8 @@ export async function PATCH(request: Request) {
       const { error: deleteError } = await supabase.from('transactions').delete().eq('id', latestTransaction.id);
       if (deleteError) throw deleteError;
       const previousDue = new Date(`${payment.next_due_date}T12:00:00Z`);
-      if (payment.frequency === 'Weekly') previousDue.setUTCDate(previousDue.getUTCDate() - 7);
+      if (isSalary(payment)) previousDue.setTime(new Date(Date.UTC(previousDue.getUTCFullYear(), previousDue.getUTCMonth(), 0, 12)).getTime());
+      else if (payment.frequency === 'Weekly') previousDue.setUTCDate(previousDue.getUTCDate() - 7);
       else if (payment.frequency === 'Yearly') previousDue.setUTCFullYear(previousDue.getUTCFullYear() - 1);
       else previousDue.setUTCMonth(previousDue.getUTCMonth() - 1);
       const { error: undoError } = await supabase.from('recurring_payments').update({ paid_this_cycle: false, next_due_date: previousDue.toISOString().slice(0, 10) }).eq('id', payment.id);
@@ -408,7 +433,10 @@ export async function PATCH(request: Request) {
     const nextDue = new Date(`${payment.next_due_date}T12:00:00Z`);
     if (payment.frequency === 'Weekly') nextDue.setUTCDate(nextDue.getUTCDate() + 7);
     else if (payment.frequency === 'Yearly') nextDue.setUTCFullYear(nextDue.getUTCFullYear() + 1);
-    else nextDue.setUTCMonth(nextDue.getUTCMonth() + 1);
+      else if (isSalary(payment)) {
+        const salaryNext = nextMonthEnd(payment.next_due_date);
+        nextDue.setTime(new Date(`${salaryNext}T12:00:00Z`).getTime());
+      } else nextDue.setUTCMonth(nextDue.getUTCMonth() + 1);
     const { error: updateError } = await supabase.from('recurring_payments').update({ paid_this_cycle: true, next_due_date: nextDue.toISOString().slice(0, 10) }).eq('id', payment.id);
     if (updateError) throw updateError;
     return Response.json(await getDashboard(authorization));
