@@ -440,6 +440,56 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 .field-help { display:block; margin-top:1px; color:var(--muted); font-size:10px; line-height:1.45; }
 @media (max-width:520px) { .topbar-actions { gap:6px; }.language-selector button { min-width:29px; padding:6px 5px; }.auth-language { top:14px; right:14px; } }
 
+/* Functional experience preferences */
+.experience-trigger svg { display:block; }
+.experience-popover { width:286px; padding:18px; }
+.experience-group { margin-top:16px; }
+.experience-group>span { display:block; margin-bottom:7px; color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.theme-options { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+.theme-options button { position:relative; display:grid; justify-items:center; gap:6px; min-width:0; padding:9px 5px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); cursor:pointer; }
+.theme-options button.active,.motion-options button.active { border-color:var(--mint); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--mint) 20%,transparent); }
+.theme-options i { display:block; width:31px; height:23px; border:1px solid rgba(255,255,255,.16); border-radius:7px; }
+.theme-options b { overflow:hidden; max-width:100%; font-size:8px; text-overflow:ellipsis; white-space:nowrap; }
+.theme-options em { position:absolute; top:5px; right:6px; color:var(--mint); font-size:8px; font-style:normal; }
+.motion-options { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+.motion-options button { display:grid; gap:3px; min-width:0; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); text-align:left; cursor:pointer; }
+.motion-options b { font-size:9px; }.motion-options small { color:var(--muted); font-size:7px; line-height:1.35; }
+.experience-saved { display:flex; align-items:center; gap:6px; margin:14px 0 0; color:var(--muted); font-size:7px; }.experience-saved i { width:6px; height:6px; border-radius:50%; background:var(--mint); box-shadow:0 0 8px color-mix(in srgb,var(--mint) 55%,transparent); }
+html[data-theme="midnight"] .dashboard,html[data-theme="midnight"] .auth-shell { background:radial-gradient(circle at 80% 0,rgba(128,186,255,.08),transparent 28%),#090d13; }
+html[data-theme="midnight"] .overview-links button,html[data-theme="midnight"] .quick-actions button,html[data-theme="midnight"] .card-cash-flow,html[data-theme="midnight"] .experience-popover,html[data-theme="midnight"] .notification-popover { background:#0d1520; }
+html[data-theme="warm"] .dashboard,html[data-theme="warm"] .auth-shell { background:radial-gradient(circle at 80% 0,rgba(244,196,119,.09),transparent 28%),#17130f; }
+html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-actions button,html[data-theme="warm"] .card-cash-flow,html[data-theme="warm"] .experience-popover,html[data-theme="warm"] .notification-popover { background:#1c1712; }
+
+/* A calmer, clearer sign-in experience */
+.auth-brand { background:radial-gradient(circle at 15% 20%,rgba(189,244,119,.055),transparent 28%),#111511; }
+.auth-points { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:9px; width:min(590px,100%); margin-top:40px; }
+.auth-points span { display:grid; gap:6px; padding-top:10px; border-top:1px solid #344034; color:var(--mint); font-size:8px; }
+.auth-points b { color:#c5cdc3; font-size:9px; font-weight:600; }
+.auth-card .save-button { min-height:51px; border-radius:13px; box-shadow:0 10px 28px rgba(189,244,119,.1); }
+.password-field { position:relative; }.password-field input { padding-right:74px; }.password-field button { position:absolute; top:50%; right:7px; transform:translateY(-50%); padding:7px 9px; border:0; border-radius:8px; background:#202920; color:var(--mint); font-size:8px; font-weight:800; cursor:pointer; }
+.mode-switch { min-height:42px; }
+@media (max-width:900px) {
+  .auth-shell { min-height:100svh; align-content:start; }
+  .auth-brand { min-height:0; padding:88px 24px 74px; }
+  .auth-brand h1 { max-width:470px; font-size:clamp(44px,11vw,64px); line-height:.91; }
+  .auth-brand>p:last-of-type { max-width:390px; margin-top:20px; }
+  .auth-points { margin-top:26px; }
+  .auth-panel { position:relative; z-index:2; margin-top:-28px; padding:38px 24px max(52px,env(safe-area-inset-bottom)); border-right:1px solid var(--line); border-radius:28px 28px 0 0; }
+}
+@media (max-width:520px) {
+  .auth-brand { padding:76px 20px 58px; }
+  .auth-brand>.brand-mark { top:20px; left:20px; }
+  .auth-brand h1 { font-size:clamp(39px,12.5vw,52px); letter-spacing:-.055em; }
+  .auth-brand>p:last-of-type { margin-top:17px; font-size:13px; line-height:1.55; }
+  .auth-points { display:none; }
+  .auth-orbit { width:205px; right:-92px; bottom:-116px; }
+  .auth-orbit span:nth-child(1) { width:55px; }
+  .auth-panel { margin-top:-22px; padding:31px 20px 44px; }
+  .auth-heading { margin-bottom:23px; }.auth-heading h2 { font-size:32px; }
+  .auth-card form { gap:14px; }.auth-card input { min-height:51px; padding-top:14px; padding-bottom:14px; }
+  .experience-popover { position:fixed; top:78px; right:12px; width:calc(100vw - 24px); }
+}
+
 /* Credit and loans share one visual rhythm. */
 .cards-panel,.bank-loans-panel { margin:24px 0; padding:26px!important; }
 .cards-panel .section-heading,.bank-loans-panel .section-heading { margin-bottom:18px; }

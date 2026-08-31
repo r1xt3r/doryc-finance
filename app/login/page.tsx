@@ -24,6 +24,7 @@ export default function LoginPage() {
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
     if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -79,6 +80,7 @@ export default function LoginPage() {
         <p className="eyebrow">{tr('PERSONAL FINANCE, IN MOTION', 'FINANZAS PERSONALES, EN MOVIMIENTO')}</p>
         <h1>{tr('Your money,', 'Tu dinero,')}<br />{tr('calmly organized.', 'en calma y orden.')}</h1>
         <p>{tr('Accounts, recurring payments and daily spending in one private place.', 'Cuentas, pagos recurrentes y gastos diarios en un solo lugar privado.')}</p>
+        <div className="auth-points" aria-label={tr('Doryc benefits', 'Beneficios de Doryc')}><span>01 <b>{tr('Private by design', 'Privado por diseño')}</b></span><span>02 <b>{tr('Your month at a glance', 'Tu mes de un vistazo')}</b></span><span>03 <b>{tr('Built for real life', 'Hecho para la vida real')}</b></span></div>
         <div className="auth-orbit"><span /><span /><span /></div>
       </section>
       <section className="auth-panel">
@@ -91,7 +93,7 @@ export default function LoginPage() {
           <form onSubmit={submit}>
             {mode === 'signup' && <label><span>{tr('Name', 'Nombre')}</span><input name="fullName" required autoComplete="name" placeholder="Richard" /></label>}
             <label><span>{tr('Email', 'Correo')}</span><input name="email" required type="email" autoComplete="email" placeholder="tu@ejemplo.com" /></label>
-            <label><span>{tr('Password', 'Contraseña')}</span><input name="password" required type="password" minLength={8} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={tr('At least 8 characters', 'Mínimo 8 caracteres')} /></label>
+            <label><span>{tr('Password', 'Contraseña')}</span><div className="password-field"><input name="password" required type={showPassword ? 'text' : 'password'} minLength={8} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={tr('At least 8 characters', 'Mínimo 8 caracteres')} /><button type="button" aria-label={showPassword ? tr('Hide password', 'Ocultar contraseña') : tr('Show password', 'Mostrar contraseña')} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? tr('Hide', 'Ocultar') : tr('Show', 'Mostrar')}</button></div></label>
             {message && <div className="auth-message" role="status">{message}</div>}
             <button className="save-button" type="submit" disabled={busy}>{busy ? tr('Please wait…', 'Espera…') : mode === 'signin' ? tr('Sign in', 'Iniciar sesión') : tr('Create account', 'Crear cuenta')}</button>
           </form>
