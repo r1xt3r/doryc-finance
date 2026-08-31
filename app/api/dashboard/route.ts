@@ -127,7 +127,7 @@ async function getDashboard(authorization?: string | null) {
     name: String(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Richard').split(' ')[0],
     accounts,
     transactions: cashFlowTransactions.map((tx) => ({ ...tx, date: tx.transaction_date, amount: tx.amount_cents / 100 })),
-    recurring: (recurringQuery.data as RecurringRow[]).map((item) => ({ ...item, amount: item.amount_cents / 100 })),
+    recurring: (recurringQuery.data as RecurringRow[]).map((item) => ({ ...item, amount: item.amount_cents / 100, flowType: item.payment_method === 'Recurring Income' ? 'income' : 'expense' })),
     creditCards: (cardRows || []).map((card) => ({
       id: card.id, name: card.name, bank: card.bank, creditLimit: card.credit_limit_cents / 100,
       openingUsed: card.opening_used_cents / 100, currentStatement: card.current_statement_cents / 100,
@@ -302,15 +302,16 @@ export async function POST(request: Request) {
     if (!['expense', 'income', 'transfer', 'recurring'].includes(type) || !body.description?.trim() || !Number.isFinite(amountCents) || amountCents <= 0 || !body.date) {
       return Response.json({ error: 'Please complete all required fields.' }, { status: 400 });
     }
+    const recurringFlow = body.flowType === 'income' ? 'income' : 'expense';
     const accountIds = [body.fromAccountId, body.toAccountId].filter(Boolean);
     const { data: owned } = await supabase.from('accounts').select('id').in('id', accountIds);
     const ownedIds = new Set((owned || []).map((account) => account.id));
-    if ((type === 'expense' || type === 'recurring' || type === 'transfer') && !ownedIds.has(body.fromAccountId)) return Response.json({ error: 'Invalid source account.' }, { status: 400 });
-    if ((type === 'income' || type === 'transfer') && !ownedIds.has(body.toAccountId)) return Response.json({ error: 'Invalid destination account.' }, { status: 400 });
+    if ((type === 'expense' || (type === 'recurring' && recurringFlow === 'expense') || type === 'transfer') && !ownedIds.has(body.fromAccountId)) return Response.json({ error: 'Invalid source account.' }, { status: 400 });
+    if ((type === 'income' || (type === 'recurring' && recurringFlow === 'income') || type === 'transfer') && !ownedIds.has(body.toAccountId)) return Response.json({ error: 'Invalid destination account.' }, { status: 400 });
     if (type === 'transfer' && body.fromAccountId === body.toAccountId) return Response.json({ error: 'Choose two different accounts.' }, { status: 400 });
 
     const result = type === 'recurring'
-      ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: body.date, pay_from_account_id: body.fromAccountId, category: body.category || null, payment_method: body.paymentMethod || null })
+      ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: body.date, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null })
       : await supabase.from('transactions').insert({ user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null });
     if (result.error) throw result.error;
     return Response.json(await getDashboard(authorization), { status: 201 });
@@ -334,8 +335,11 @@ export async function PATCH(request: Request) {
     if (!body.recurringId || !body.date) return Response.json({ error: 'Missing payment information.' }, { status: 400 });
     const { data: payment, error: paymentError } = await supabase.from('recurring_payments').select('id,name,amount_cents,frequency,next_due_date,pay_from_account_id,category,payment_method').eq('id', body.recurringId).single();
     if (paymentError || !payment) return Response.json({ error: 'Recurring payment not found.' }, { status: 404 });
+    const flowType = payment.payment_method === 'Recurring Income' ? 'income' : 'expense';
     if (body.action === 'undo') {
-      const { data: latestTransaction } = await supabase.from('transactions').select('id').eq('type', 'expense').eq('description', payment.name).eq('amount_cents', payment.amount_cents).eq('from_account_id', payment.pay_from_account_id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      let latestQuery = supabase.from('transactions').select('id').eq('type', flowType).eq('description', payment.name).eq('amount_cents', payment.amount_cents);
+      latestQuery = flowType === 'income' ? latestQuery.eq('to_account_id', payment.pay_from_account_id) : latestQuery.eq('from_account_id', payment.pay_from_account_id);
+      const { data: latestTransaction } = await latestQuery.order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (!latestTransaction) return Response.json({ error: 'The payment transaction could not be found.' }, { status: 404 });
       const { error: deleteError } = await supabase.from('transactions').delete().eq('id', latestTransaction.id);
       if (deleteError) throw deleteError;
@@ -348,8 +352,9 @@ export async function PATCH(request: Request) {
       return Response.json(await getDashboard(authorization));
     }
     const { error: transactionError } = await supabase.from('transactions').insert({
-      user_id: user.id, type: 'expense', description: payment.name, amount_cents: payment.amount_cents,
-      transaction_date: body.date, from_account_id: payment.pay_from_account_id,
+      user_id: user.id, type: flowType, description: payment.name, amount_cents: payment.amount_cents,
+      transaction_date: body.date, from_account_id: flowType === 'expense' ? payment.pay_from_account_id : null,
+      to_account_id: flowType === 'income' ? payment.pay_from_account_id : null,
       category: payment.category || 'Subscriptions', payment_method: payment.payment_method,
     });
     if (transactionError) throw transactionError;

@@ -9,7 +9,7 @@ import { estimateCardPayment, nextMonthlyDate } from '../lib/finance';
 
 type Account = { id: string; name: string; bank: string; accountType: string; startingBalance: number; balance: number };
 type Transaction = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount: number; date: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; debtMovement?: boolean };
-type Recurring = { id: string; name: string; amount: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: number };
+type Recurring = { id: string; name: string; amount: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: number; flowType: 'income' | 'expense' };
 type CreditCard = { id: string; name: string; bank: string; creditLimit: number; openingUsed: number; currentStatement: number; annualRate: number; paymentDay: number | null; statementDay: number | null; network: string; payFromAccountId: string | null };
 type CardPurchase = { id: string; creditCardId: string; description: string; amount: number; date: string; category: string | null; installmentMonths: number; installmentsPaid: number; withInterest: boolean };
 type CardPayment = { id: string; creditCardId: string; fromAccountId: string; amount: number; date: string; note: string | null };
@@ -76,6 +76,7 @@ export default function Home() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [payingRecurringId, setPayingRecurringId] = useState<string | null>(null);
+  const [recurringFlow, setRecurringFlow] = useState<'income' | 'expense'>('expense');
   const [cardModal, setCardModal] = useState<'account' | 'card' | 'purchase' | 'statement' | 'loan' | 'cardPayment' | 'loanPayment' | 'loanIncrease' | 'bankLoan' | null>(null);
   const [selectedCardId, setSelectedCardId] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -191,8 +192,11 @@ export default function Home() {
   const availableAccounts = data.accounts.filter((account) => account.name !== 'Produbanco Savings');
   const totalBalance = availableAccounts.reduce((sum, account) => sum + account.balance, 0);
   const activity = showAllActivity ? data.transactions : data.transactions.slice(0, 5);
-  const allUpcoming = data.recurring.filter((item) => !item.paid_this_cycle);
-  const paidThisCycle = data.recurring.filter((item) => item.paid_this_cycle);
+  const recurringIncome = data.recurring.filter((item) => item.flowType === 'income');
+  const recurringExpenses = data.recurring.filter((item) => item.flowType !== 'income');
+  const expectedIncome = recurringIncome.filter((item) => !item.paid_this_cycle || item.next_due_date <= today);
+  const allUpcoming = recurringExpenses.filter((item) => !item.paid_this_cycle || item.next_due_date <= today);
+  const paidThisCycle = recurringExpenses.filter((item) => item.paid_this_cycle && item.next_due_date > today);
   const upcoming = showAllUpcoming ? allUpcoming : allUpcoming.slice(0, 3);
   const accountMap = useMemo(() => new Map(data.accounts.map((account) => [account.id, account.name])), [data.accounts]);
   const pichinchaCheckingId = data.accounts.find((account) => account.bank === 'Pichincha' && account.accountType.toLowerCase() === 'checking')?.id || '';
@@ -221,12 +225,16 @@ export default function Home() {
   const totalReadyForPayments = fundingPlan.reduce((sum, item) => sum + item.ready, 0);
   const totalFundingNeeded = fundingPlan.reduce((sum, item) => sum + item.needed, 0);
   const outstanding = fundingPlan.reduce((sum, item) => sum + item.required, 0);
-  const projectedBalance = totalBalance - outstanding;
-  const paymentCoverage = outstanding > 0 ? Math.min(100, totalReadyForPayments / outstanding * 100) : 100;
+  const expectedIncomeTotal = expectedIncome.reduce((sum, item) => sum + item.amount, 0);
+  const projectedBalance = totalBalance + expectedIncomeTotal - outstanding;
+  const availableAfterIncome = Math.max(totalBalance + expectedIncomeTotal, 0);
+  const paymentCoverage = outstanding > 0 ? Math.min(100, availableAfterIncome / outstanding * 100) : 100;
+  const forecastScale = Math.max(availableAfterIncome, outstanding, Math.abs(projectedBalance), 1);
   const financialTimeline = [
-    ...allUpcoming.map((payment) => ({ id: `recurring-${payment.id}`, name: payment.name, date: payment.next_due_date, amount: payment.amount, kind: payment.payment_method || 'Payment' })),
-    ...data.bankLoans.filter((loan) => loan.outstandingBalance > 0).map((loan) => ({ id: `loan-${loan.id}`, name: loan.name, date: loan.nextDueDate, amount: Math.min(loan.installment, loan.outstandingBalance), kind: 'Automatic Debit' })),
-    ...cardSummaries.filter(({ estimatedPayment }) => estimatedPayment > 0).map(({ card, estimatedPayment }) => ({ id: `card-${card.id}`, name: `${card.name} payment`, date: nextMonthlyDate(card.paymentDay, today), amount: estimatedPayment, kind: 'Bank Transfer' })),
+    ...expectedIncome.map((income) => ({ id: `income-${income.id}`, name: income.name, date: income.next_due_date, amount: income.amount, kind: 'Expected income', direction: 'income' as const })),
+    ...allUpcoming.map((payment) => ({ id: `recurring-${payment.id}`, name: payment.name, date: payment.next_due_date, amount: payment.amount, kind: payment.payment_method || 'Payment', direction: 'expense' as const })),
+    ...data.bankLoans.filter((loan) => loan.outstandingBalance > 0).map((loan) => ({ id: `loan-${loan.id}`, name: loan.name, date: loan.nextDueDate, amount: Math.min(loan.installment, loan.outstandingBalance), kind: 'Automatic Debit', direction: 'expense' as const })),
+    ...cardSummaries.filter(({ estimatedPayment }) => estimatedPayment > 0).map(({ card, estimatedPayment }) => ({ id: `card-${card.id}`, name: `${card.name} payment`, date: nextMonthlyDate(card.paymentDay, today), amount: estimatedPayment, kind: 'Bank Transfer', direction: 'expense' as const })),
   ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
   const fundingMonth = fundingPlan[0]?.nextDue ? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(`${fundingPlan[0].nextDue}T12:00:00`)) : 'Upcoming';
   const safetyId = data.accounts.find((account) => account.name === 'Pichincha Safety')?.id || '';
@@ -468,7 +476,8 @@ export default function Home() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Unable to mark this payment as paid.');
       setData(result);
-      setToast(`${payment.name} paid`);
+      setToast(payment.flowType === 'income' ? `${payment.name} received` : `${payment.name} paid`);
+      if (payment.flowType === 'income') celebrateMoneyIn();
       window.setTimeout(() => setToast(''), 2400);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to mark this payment as paid.');
@@ -552,14 +561,19 @@ export default function Home() {
 
         <section className="overview-intelligence" hidden={activeView !== 'overview'}>
           <article className={`financial-pulse ${projectedBalance < 0 ? 'warning' : ''}`}>
-            <div className="pulse-heading"><span><p className="eyebrow">FINANCIAL PULSE</p><h2>{projectedBalance >= 0 ? 'Your month is taking shape.' : 'Your commitments need attention.'}</h2></span><i>{paymentCoverage.toFixed(0)}%</i></div>
-            <p className="pulse-message">After covering {fundingMonth.toLowerCase()} commitments, you would have <strong>{money(projectedBalance)}</strong> available outside savings.</p>
-            <div className="pulse-visual" aria-hidden="true"><svg viewBox="0 0 600 82" preserveAspectRatio="none"><defs><linearGradient id="pulseGradient" x1="0" x2="1"><stop offset="0" stopColor="#6d9f43"/><stop offset=".55" stopColor="#bdf477"/><stop offset="1" stopColor="#dffff0"/></linearGradient></defs><path className="pulse-shadow" d="M0 58 C55 58 65 45 105 45 S155 69 195 53 S245 20 285 42 S340 62 380 45 S430 30 465 44 S535 54 600 21"/><path className="pulse-line" d="M0 58 C55 58 65 45 105 45 S155 69 195 53 S245 20 285 42 S340 62 380 45 S430 30 465 44 S535 54 600 21"/></svg><b style={{ left: `${Math.max(3, Math.min(96, paymentCoverage))}%` }} /></div>
-            <div className="pulse-stats"><span><small>Ready now</small><strong>{money(totalReadyForPayments)}</strong></span><span><small>Scheduled</small><strong>{money(outstanding)}</strong></span><span><small>Still needed</small><strong>{money(totalFundingNeeded)}</strong></span></div>
+            <div className="pulse-heading"><span><p className="eyebrow">MONTHLY FORECAST</p><h2>{projectedBalance >= 0 ? 'This is what you could save.' : 'Your commitments exceed available income.'}</h2></span><i>{paymentCoverage.toFixed(0)}%</i></div>
+            <p className="pulse-message">Starting with <strong>{money(totalBalance)}</strong>, adding expected income and covering {fundingMonth.toLowerCase()} commitments leaves <strong>{money(projectedBalance)}</strong>.</p>
+            {expectedIncomeTotal === 0 && <button className="pulse-income-setup" type="button" onClick={() => { setEditingTransaction(null); setRecurringFlow('income'); setActiveAction('Recurring'); }}><span>＋</span><span><strong>Add your expected salary</strong><small>Register the $1,300 you receive at the start of each month.</small></span><b>Set up →</b></button>}
+            <div className="cash-forecast" aria-label="Monthly cash forecast">
+              <div><span><small>Available now</small><strong>{money(totalBalance)}</strong></span><i className="current" style={{ width: `${Math.max(totalBalance > 0 ? 4 : 0, Math.min(100, totalBalance / forecastScale * 100))}%` }} /></div>
+              <div><span><small>Expected income</small><strong>+{money(expectedIncomeTotal)}</strong></span><i className="income" style={{ width: `${Math.max(expectedIncomeTotal > 0 ? 4 : 0, Math.min(100, expectedIncomeTotal / forecastScale * 100))}%` }} /></div>
+              <div><span><small>Monthly commitments</small><strong>−{money(outstanding)}</strong></span><i className="commitments" style={{ width: `${Math.max(outstanding > 0 ? 4 : 0, Math.min(100, outstanding / forecastScale * 100))}%` }} /></div>
+              <div className={projectedBalance >= 0 ? 'result positive' : 'result negative'}><span><small>{projectedBalance >= 0 ? 'Potential savings' : 'Missing funds'}</small><strong>{money(Math.abs(projectedBalance))}</strong></span><i style={{ width: `${Math.max(Math.abs(projectedBalance) > 0 ? 4 : 0, Math.min(100, Math.abs(projectedBalance) / forecastScale * 100))}%` }} /></div>
+            </div>
           </article>
           <article className="financial-calendar">
             <div className="calendar-heading"><span><p className="eyebrow">MONEY CALENDAR</p><h2>Next on your timeline</h2></span><button type="button" onClick={() => navigateTo('payments')}>View all →</button></div>
-            <div className="timeline-list">{financialTimeline.length ? financialTimeline.map((item, index) => <div className="timeline-item" key={item.id}><time><strong>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { day: '2-digit' })}</strong><small>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })}</small></time><i className={index === 0 ? 'next' : ''}/><span><strong>{item.name}</strong><small>{item.kind}</small></span><b>−{money(item.amount)}</b></div>) : <div className="timeline-empty"><strong>Your calendar is clear</strong><small>New scheduled payments will appear here.</small></div>}</div>
+            <div className="timeline-list">{financialTimeline.length ? financialTimeline.map((item, index) => <div className={`timeline-item ${item.direction}`} key={item.id}><time><strong>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { day: '2-digit' })}</strong><small>{new Date(`${item.date}T12:00:00`).toLocaleDateString('en-US', { month: 'short' })}</small></time><i className={index === 0 ? 'next' : ''}/><span><strong>{item.name}</strong><small>{item.kind}</small></span><b>{item.direction === 'income' ? '+' : '−'}{money(item.amount)}</b></div>) : <div className="timeline-empty"><strong>Your calendar is clear</strong><small>New scheduled payments will appear here.</small></div>}</div>
           </article>
         </section>
 
@@ -632,7 +646,8 @@ export default function Home() {
             <div className="account-list">{data.accounts.map((account, index) => <div className="account-row" key={account.id}><span className={`account-icon ${['mint', 'violet', 'orange'][index % 3]}`}>{account.name.split(' ')[1]?.[0] || account.name[0]}</span><span><strong>{account.name}</strong><small>{account.accountType}</small></span><strong>{money(account.balance)}</strong><span className="row-actions"><button className="icon-action" type="button" aria-label={`Edit ${account.name}`} title="Edit" onClick={() => { setSelectedAccountId(account.id); setCardModal('account'); }}><PencilIcon /></button><button className="danger-mini icon-action" type="button" aria-label={`Delete ${account.name}`} title="Delete" onClick={() => deleteAccount(account)}><TrashIcon /></button></span></div>)}</div>
           </article>
           <article className="panel" id="plans" data-reveal hidden={activeView !== 'payments'}>
-            <div className="section-heading"><div><p className="eyebrow">NEXT PAYMENTS</p><h2>Upcoming</h2></div><div className="section-actions"><span className="live-label">{data.recurring.length + data.creditCards.length + data.bankLoans.length} active</span><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Recurring'); }}>+ Recurring</button></div></div>
+            <div className="section-heading"><div><p className="eyebrow">MONTHLY PLAN</p><h2>Income & commitments</h2></div><div className="section-actions"><span className="live-label">{data.recurring.length + data.creditCards.length + data.bankLoans.length} active</span><button type="button" onClick={() => { setEditingTransaction(null); setRecurringFlow('expense'); setActiveAction('Recurring'); }}>+ Schedule</button></div></div>
+            {expectedIncome.length > 0 && <div className="expected-income-list"><p><span>↗</span> Expected income</p>{expectedIncome.map((income) => <div key={income.id}><span className="payment-icon income-icon">＋</span><span><strong>{income.name}</strong><small>{shortDate(income.next_due_date)} · arrives in {accountMap.get(income.pay_from_account_id)}</small></span><strong>+{money(income.amount)}</strong><span className="income-actions"><button type="button" disabled={payingRecurringId === income.id} onClick={() => markRecurringPaid(income)}>{payingRecurringId === income.id ? 'Saving…' : 'Record received'}</button><button className="danger-mini icon-action" type="button" aria-label={`Delete ${income.name}`} title="Delete" onClick={() => deleteRecurring(income)}><TrashIcon /></button></span></div>)}</div>}
             <div className="upcoming-list">{upcoming.map((payment) => <div className="payment-row editable-payment-row" key={payment.id}><span className="payment-icon">◷</span><span><strong>{payment.name}</strong><small>{shortDate(payment.next_due_date)} · {accountMap.get(payment.pay_from_account_id)}</small></span><strong>−{money(payment.amount)}</strong><button className="danger-mini icon-action" type="button" aria-label={`Delete ${payment.name}`} title="Delete" onClick={() => deleteRecurring(payment)}><TrashIcon /></button></div>)}{data.bankLoans.map((loan) => <div className="payment-row bank-loan-payment-row" key={`loan-${loan.id}`}><span className="payment-icon">▤</span><span><strong>{loan.name}</strong><small>{shortDate(loan.nextDueDate)} · Automatic Debit · {accountMap.get(bankLoanAccountId(loan) || '') || loan.bank}</small></span><strong>−{money(loan.installment)}</strong></div>)}{cardSummaries.map(({ card, estimatedPayment }) => <div className="payment-row card-payment-row" key={`card-${card.id}`}><span className="payment-icon">◇</span><span><strong>{card.name} payment</strong><small>Day {card.paymentDay || '—'} · Bank Transfer · {accountMap.get(card.payFromAccountId || '') || 'select payment account'}</small></span><strong>−{money(estimatedPayment)}</strong></div>)}{!upcoming.length && !cardSummaries.length && !data.bankLoans.length && <div className="empty-state"><strong>No upcoming payments</strong><small>Add a recurring payment, loan or credit card above.</small></div>}</div>
             {allUpcoming.length > 3 && <button className="show-all-button" type="button" onClick={() => setShowAllUpcoming((visible) => !visible)}>{showAllUpcoming ? 'Show less' : `View all ${allUpcoming.length}`}</button>}
             {paidThisCycle.length > 0 && <div className="paid-cycle"><p><span>✓</span> Paid this cycle</p>{paidThisCycle.map((payment) => <div key={payment.id}><span><strong>{payment.name}</strong><small>{money(payment.amount)} · next {shortDate(payment.next_due_date)}</small></span><button type="button" disabled={payingRecurringId === payment.id} onClick={() => undoRecurringPayment(payment)}>{payingRecurringId === payment.id ? 'Restoring…' : 'Undo'}</button></div>)}</div>}
@@ -659,17 +674,19 @@ export default function Home() {
             <section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title" onMouseDown={(event) => event.stopPropagation()}>
               <div className="modal-heading"><div><p className="eyebrow">{editingTransaction ? 'MOVEMENT SETTINGS' : 'QUICK ENTRY'}</p><h2 id="modal-title">{editingTransaction ? 'Edit movement' : `New ${activeAction.toLowerCase()}`}</h2></div><button onClick={() => { setActiveAction(null); setEditingTransaction(null); }} aria-label="Close" disabled={saving}>×</button></div>
               <form onSubmit={submitEntry}>
-                <label><span>Description</span><input name="description" required autoFocus defaultValue={editingTransaction?.description || (activeAction === 'Transfer' ? 'Debit funding' : '')} placeholder={activeAction === 'Transfer' ? 'Debit funding' : 'What was it for?'} /></label>
-                <div className="field-row"><label><span>Amount</span><input name="amount" required inputMode="decimal" type="number" min="0.01" step="0.01" defaultValue={editingTransaction?.amount || ''} placeholder="$0.00" /></label><label><span>{activeAction === 'Recurring' ? 'Next due date' : 'Date'}</span><input name="date" required type="date" defaultValue={editingTransaction?.date || today} /></label></div>
-                {activeAction === 'Income' ? (
+                {activeAction === 'Recurring' && <label><span>Schedule type</span><select name="flowType" value={recurringFlow} onChange={(event) => setRecurringFlow(event.target.value as 'income' | 'expense')}><option value="expense">Recurring expense</option><option value="income">Recurring income</option></select></label>}
+                <label><span>Description</span><input name="description" required autoFocus defaultValue={editingTransaction?.description || (activeAction === 'Transfer' ? 'Debit funding' : '')} placeholder={activeAction === 'Recurring' && recurringFlow === 'income' ? 'Monthly salary' : activeAction === 'Transfer' ? 'Debit funding' : 'What was it for?'} /></label>
+                <div className="field-row"><label><span>Amount</span><input name="amount" required inputMode="decimal" type="number" min="0.01" step="0.01" defaultValue={editingTransaction?.amount || (activeAction === 'Recurring' && recurringFlow === 'income' ? '1300' : '')} placeholder="$0.00" /></label><label><span>{activeAction === 'Recurring' ? recurringFlow === 'income' ? 'Next income date' : 'Next due date' : 'Date'}</span><input name="date" required type="date" defaultValue={editingTransaction?.date || today} /></label></div>
+                {activeAction === 'Income' || (activeAction === 'Recurring' && recurringFlow === 'income') ? (
                   <label><span>To account</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || ''}><option value="" disabled>Select destination</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
                 ) : (
                   <label><span>{activeAction === 'Recurring' ? 'Pay from' : 'From account'}</span><select name="fromAccountId" required defaultValue={editingTransaction?.from_account_id || (activeAction === 'Transfer' ? safetyId : '')}><option value="" disabled>Select an account</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
                 )}
                 {activeAction === 'Transfer' && <label><span>To account</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || debitId}><option value="" disabled>Select destination</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
                 {activeAction === 'Income' && <label><span>Income type</span><select name="category" required defaultValue={editingTransaction?.category || ''}><option value="" disabled>Select an income type</option><option>Transfer Received</option><option>Salary</option><option>Interest</option><option>Refund</option><option>Other</option></select></label>}
-                {(activeAction === 'Expense' || activeAction === 'Recurring') && <label><span>Category</span><select name="category" required defaultValue={editingTransaction?.category || ''}><option value="" disabled>Select a category</option><option>Food</option><option>Transportation</option><option>Shopping</option><option>Personal</option><option>Alcohol</option><option>Entertainment</option><option>Subscriptions</option><option>Utilities</option><option>Home</option><option>Health</option><option>Insurance</option><option>Debt</option><option>Other</option></select></label>}
-                {activeAction !== 'Income' && <label><span>Payment method</span><select name="paymentMethod" required defaultValue={editingTransaction?.payment_method || (activeAction === 'Transfer' ? 'Bank Transfer' : '')}><option value="" disabled>Select a method</option><option>Debit Card</option><option>Bank Transfer</option><option>Deuna</option><option>Automatic Debit</option><option>Cash</option></select></label>}
+                {activeAction === 'Recurring' && recurringFlow === 'income' && <input type="hidden" name="category" value="Salary" />}
+                {(activeAction === 'Expense' || (activeAction === 'Recurring' && recurringFlow === 'expense')) && <label><span>Category</span><select name="category" required defaultValue={editingTransaction?.category || ''}><option value="" disabled>Select a category</option><option>Food</option><option>Transportation</option><option>Shopping</option><option>Personal</option><option>Alcohol</option><option>Entertainment</option><option>Subscriptions</option><option>Utilities</option><option>Home</option><option>Health</option><option>Insurance</option><option>Debt</option><option>Other</option></select></label>}
+                {activeAction !== 'Income' && !(activeAction === 'Recurring' && recurringFlow === 'income') && <label><span>Payment method</span><select name="paymentMethod" required defaultValue={editingTransaction?.payment_method || (activeAction === 'Transfer' ? 'Bank Transfer' : '')}><option value="" disabled>Select a method</option><option>Debit Card</option><option>Bank Transfer</option><option>Deuna</option><option>Automatic Debit</option><option>Cash</option></select></label>}
                 {error && <small className="form-error" role="alert">{error}</small>}
                 <button className="save-button" type="submit" disabled={saving}>{saving ? 'Saving…' : editingTransaction ? 'Save changes' : `Save ${activeAction.toLowerCase()}`}</button>
                 <small className="demo-note">Private data — visible only when signed in to your Doryc account.</small>
