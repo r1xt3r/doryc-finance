@@ -2,7 +2,7 @@
   <defs>
     <linearGradient id="midnight" x1="8" y1="4" x2="54" y2="60" gradientUnits="userSpaceOnUse"><stop stop-color="#dcffb2"/><stop offset=".52" stop-color="#80baff"/><stop offset="1" stop-color="#78ae47"/></linearGradient>
   </defs>
-  <rect width="64" height="64" fill="url(#midnight)"/>
+  <rect width="64" height="64" rx="16" fill="url(#midnight)"/>
   <path d="M22 15h13c10 0 17 6 17 17S45 49 35 49H22V15Zm9 9v16h4c5 0 8-3 8-8s-3-8-8-8h-4Z" fill="#101722"/>
   <path d="m12 40 7-7 5 5 10-11m-5 0h5v5" fill="none" stroke="#f7ffe9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
