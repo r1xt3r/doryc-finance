@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { estimateCardPayment, nextMonthlyDate } from '../lib/finance.ts';
+import { cardPurchaseDueDate, estimateCardPayment, nextMonthlyDate } from '../lib/finance.ts';
 
 test('moves a payment day that already passed into the next month', () => {
   assert.equal(nextMonthlyDate(2, '2026-08-30'), '2026-09-02');
@@ -29,4 +29,12 @@ test('produces a finite positive payment for interest-bearing installments', () 
   ]);
   assert.ok(Number.isFinite(payment));
   assert.ok(payment > 0);
+});
+
+test('moves a purchase made after statement closing to the following payment cycle', () => {
+  assert.equal(cardPurchaseDueDate('2026-08-30', 18, 2), '2026-10-02');
+});
+
+test('keeps a purchase before statement closing in the immediate payment cycle', () => {
+  assert.equal(cardPurchaseDueDate('2026-08-10', 18, 2), '2026-09-02');
 });

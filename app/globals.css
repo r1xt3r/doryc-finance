@@ -376,3 +376,11 @@ body { background:
   .dashboard-nav i { width:25px; height:25px; }
   .dashboard-nav b,.dashboard-nav button>b { right:calc(50% - 21px); }
 }
+
+.topbar-actions { display:flex; align-items:center; gap:10px; }
+.language-selector { display:inline-flex; align-items:center; gap:2px; padding:3px; border:1px solid var(--line); border-radius:12px; background:#111612; }
+.language-selector button { min-width:34px; padding:7px 8px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:10px; font-weight:850; letter-spacing:.07em; }
+.language-selector button.active { background:var(--mint); color:#101510; box-shadow:0 4px 14px rgba(189,244,119,.14); }
+.auth-language { position:absolute; z-index:5; top:22px; right:24px; }
+.field-help { display:block; margin-top:1px; color:var(--muted); font-size:10px; line-height:1.45; }
+@media (max-width:520px) { .topbar-actions { gap:6px; }.language-selector button { min-width:29px; padding:6px 5px; }.auth-language { top:14px; right:14px; } }

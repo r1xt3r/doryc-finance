@@ -5,6 +5,8 @@ import { animate, stagger } from 'animejs';
 import type { AuthResponse } from '@supabase/supabase-js';
 import { createClient } from '../../lib/supabase/client';
 import LogoMark from '../components/LogoMark';
+import LanguageSelector from '../components/LanguageSelector';
+import { useLanguage } from '../../lib/useLanguage';
 
 const AUTH_TIMEOUT_MS = 15_000;
 
@@ -17,6 +19,8 @@ function withAuthTimeout(request: PromiseLike<AuthResponse>): Promise<AuthRespon
 
 export default function LoginPage() {
   const root = useRef<HTMLElement>(null);
+  const { language, setLanguage } = useLanguage();
+  const tr = (en: string, es: string) => language === 'es' ? es : en;
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
@@ -69,29 +73,30 @@ export default function LoginPage() {
 
   return (
     <main ref={root} className="auth-shell">
+      <div className="auth-language"><LanguageSelector language={language} onChange={setLanguage} /></div>
       <section className="auth-brand">
         <LogoMark />
-        <p className="eyebrow">PERSONAL FINANCE, IN MOTION</p>
-        <h1>Your money,<br />calmly organized.</h1>
-        <p>Accounts, recurring payments and daily spending in one private place.</p>
+        <p className="eyebrow">{tr('PERSONAL FINANCE, IN MOTION', 'FINANZAS PERSONALES, EN MOVIMIENTO')}</p>
+        <h1>{tr('Your money,', 'Tu dinero,')}<br />{tr('calmly organized.', 'en calma y orden.')}</h1>
+        <p>{tr('Accounts, recurring payments and daily spending in one private place.', 'Cuentas, pagos recurrentes y gastos diarios en un solo lugar privado.')}</p>
         <div className="auth-orbit"><span /><span /><span /></div>
       </section>
       <section className="auth-panel">
         <div className="auth-card">
           <div className="auth-heading">
-            <p className="eyebrow">WELCOME TO DORYC</p>
-            <h2>{mode === 'signin' ? 'Sign in' : 'Create your account'}</h2>
-            <p>{mode === 'signin' ? 'Use your email and password.' : 'Your financial information will belong only to this account.'}</p>
+            <p className="eyebrow">{tr('WELCOME TO DORYC', 'BIENVENIDO A DORYC')}</p>
+            <h2>{mode === 'signin' ? tr('Sign in', 'Iniciar sesión') : tr('Create your account', 'Crea tu cuenta')}</h2>
+            <p>{mode === 'signin' ? tr('Use your email and password.', 'Usa tu correo y contraseña.') : tr('Your financial information will belong only to this account.', 'Tu información financiera pertenecerá únicamente a esta cuenta.')}</p>
           </div>
           <form onSubmit={submit}>
-            {mode === 'signup' && <label><span>Name</span><input name="fullName" required autoComplete="name" placeholder="Richard" /></label>}
-            <label><span>Email</span><input name="email" required type="email" autoComplete="email" placeholder="you@example.com" /></label>
-            <label><span>Password</span><input name="password" required type="password" minLength={8} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder="At least 8 characters" /></label>
+            {mode === 'signup' && <label><span>{tr('Name', 'Nombre')}</span><input name="fullName" required autoComplete="name" placeholder="Richard" /></label>}
+            <label><span>{tr('Email', 'Correo')}</span><input name="email" required type="email" autoComplete="email" placeholder="tu@ejemplo.com" /></label>
+            <label><span>{tr('Password', 'Contraseña')}</span><input name="password" required type="password" minLength={8} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={tr('At least 8 characters', 'Mínimo 8 caracteres')} /></label>
             {message && <div className="auth-message" role="status">{message}</div>}
-            <button className="save-button" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'signin' ? 'Sign in' : 'Create account'}</button>
+            <button className="save-button" type="submit" disabled={busy}>{busy ? tr('Please wait…', 'Espera…') : mode === 'signin' ? tr('Sign in', 'Iniciar sesión') : tr('Create account', 'Crear cuenta')}</button>
           </form>
           <button className="mode-switch" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); }}>
-            {mode === 'signin' ? 'New to Doryc? Create an account' : 'Already have an account? Sign in'}
+            {mode === 'signin' ? tr('New to Doryc? Create an account', '¿Nuevo en Doryc? Crea una cuenta') : tr('Already have an account? Sign in', '¿Ya tienes cuenta? Inicia sesión')}
           </button>
         </div>
       </section>

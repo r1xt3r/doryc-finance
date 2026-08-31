@@ -326,7 +326,12 @@ export async function PATCH(request: Request) {
     const authorization = request.headers.get('authorization');
     const { supabase, user } = await requireUser(authorization);
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    const body = await request.json() as { recurringId?: string; personalLoanId?: string; date?: string; action?: 'pay' | 'undo' | 'settle' };
+    const body = await request.json() as { recurringId?: string; personalLoanId?: string; date?: string; action?: 'pay' | 'undo' | 'settle' | 'detachAccount' };
+    if (body.personalLoanId && body.action === 'detachAccount') {
+      const { error: detachError } = await supabase.from('personal_loans').update({ account_id: null }).eq('id', body.personalLoanId);
+      if (detachError) throw detachError;
+      return Response.json(await getDashboard(authorization));
+    }
     if (body.personalLoanId && body.action === 'settle') {
       const { error: settleError } = await supabase.from('personal_loans').update({ status: 'settled' }).eq('id', body.personalLoanId);
       if (settleError) throw settleError;
