@@ -55,19 +55,19 @@ function incomeTiming(item: Recurring, language: 'en' | 'es') {
 }
 
 async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
-  const session = await new Promise<Awaited<ReturnType<ReturnType<typeof createClient>['auth']['getSession']>>['data']['session']>((resolve) => {
+  const sessionToken = await new Promise<string | null>((resolve) => {
     let settled = false;
-    const finish = (value: Awaited<ReturnType<ReturnType<typeof createClient>['auth']['getSession']>>['data']['session']) => {
+    const finish = (value: string | null) => {
       if (settled) return;
       settled = true;
       window.clearTimeout(timer);
       resolve(value);
     };
     const timer = window.setTimeout(() => finish(null), 4_000);
-    createClient().auth.getSession().then(({ data }) => finish(data.session)).catch(() => finish(null));
+    createClient().auth.getSession().then((result: { data: { session: { access_token: string } | null } }) => finish(result.data.session?.access_token || null)).catch(() => finish(null));
   });
   const headers = new Headers(init.headers);
-  const accessToken = session?.access_token || window.sessionStorage.getItem('doryc_access_token') || window.sessionStorage.getItem('moro_access_token');
+  const accessToken = sessionToken || window.sessionStorage.getItem('doryc_access_token') || window.sessionStorage.getItem('moro_access_token');
   if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
   const controller = init.signal ? null : new AbortController();
   const timeout = controller ? window.setTimeout(() => controller.abort(), 20_000) : null;
@@ -214,18 +214,24 @@ export default function Home() {
   useEffect(() => {
     if (!activeAction && !showFundingPlan && !cardModal) return;
     const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || saving) return;
-      setActiveAction(null);
-      setShowFundingPlan(false);
-      setCardModal(null);
-      setEditingTransaction(null);
-      setSelectedAccountId('');
+    const dialog = document.querySelector<HTMLElement>('.modal-card');
+    const focusable = dialog ? [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')] : [];
+    focusable[0]?.focus();
+    const handleDialogKeys = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !saving) {
+        setActiveAction(null); setShowFundingPlan(false); setCardModal(null); setEditingTransaction(null); setSelectedAccountId('');
+        return;
+      }
+      if (event.key !== 'Tab' || focusable.length === 0) return;
+      const first = focusable[0]; const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
-    window.addEventListener('keydown', closeOnEscape);
+    window.addEventListener('keydown', handleDialogKeys);
     animate('.modal-card', { opacity: [0, 1], scale: [.96, 1], y: [18, 0], duration: 460, ease: 'outExpo' });
-    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', closeOnEscape); };
+    return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', handleDialogKeys); previousFocus?.focus(); };
   }, [activeAction, showFundingPlan, cardModal, saving]);
 
   const availableAccounts = data.accounts.filter((account) => account.name !== 'Produbanco Savings');
@@ -587,7 +593,7 @@ export default function Home() {
 
   return (
     <main ref={root} className={`app-shell ${loading ? 'app-is-loading' : ''}`}>
-      {loading && <section className="app-loading-screen" role="status" aria-live="polite"><LogoMark /><div><p className="eyebrow">DORYC</p><h1>Bringing your finances together</h1><small>Connecting securely to your financial home…</small></div><div className="app-loading-progress" aria-hidden="true"><i /></div></section>}
+      {loading && <section className="app-loading-screen" role="status" aria-live="polite"><LogoMark /><div><p className="eyebrow">DORYC</p><h1>{tr('Bringing your finances together', 'Organizando tus finanzas')}</h1><small>{tr('Connecting securely to your financial home…', 'Conectando de forma segura con tu espacio financiero…')}</small></div><div className="app-loading-progress" aria-hidden="true"><i /></div></section>}
       <DashboardSidebar activeView={activeView} name={data.name} paymentCount={fundingPayments.length} language={language} onNavigate={navigateTo} />
 
       <section className={`dashboard ${loading ? 'is-loading' : ''}`} id="top" aria-busy={loading}>
@@ -595,7 +601,7 @@ export default function Home() {
           <div><p className="eyebrow">{activeView === 'overview' ? currentDateLabel : 'DORYC'}</p><h1>{activeView === 'overview' ? <><span className="greeting-word">{greeting},</span>{' '}<span className="greeting-word greeting-name">{data.name}.</span></> : viewTitles[activeView]}</h1></div>
           <div className="topbar-actions"><NotificationCenter items={notifications} language={language} onNavigate={navigateTo} open={openUtility === 'notifications'} onToggle={() => setOpenUtility((v) => v === 'notifications' ? null : 'notifications')} onClose={() => setOpenUtility(null)} /><ExperienceSettings value={preferences} language={language} onChange={setPreferences} open={openUtility === 'settings'} onToggle={() => setOpenUtility((v) => v === 'settings' ? null : 'settings')} /><LanguageSelector language={language} onChange={setLanguage} /><button className="icon-button" type="button" onClick={signOut} aria-label={tr('Sign out', 'Cerrar sesión')} title={tr('Sign out', 'Cerrar sesión')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4m4-4H9"/></svg><span className="button-tooltip">{tr('Sign out', 'Cerrar sesión')}</span></button></div>
         </header>
-        {error && !activeAction && <div className="page-error" role="alert"><span><strong>Connection interrupted</strong><small>{error}</small></span><button type="button" onClick={() => { setLoading(true); setError(''); setLoadAttempt((attempt) => attempt + 1); }}>Try again</button></div>}
+        {error && !activeAction && <div className="page-error" role="alert"><span><strong>{tr('Connection interrupted', 'Conexión interrumpida')}</strong><small>{error}</small></span><button type="button" onClick={() => { setLoading(true); setError(''); setLoadAttempt((attempt) => attempt + 1); }}>{tr('Try again', 'Reintentar')}</button></div>}
 
         {showOnboarding && activeView === 'overview' && <section className="onboarding-panel">
           <button type="button" aria-label="Dismiss setup guide" onClick={completeOnboarding}>×</button>

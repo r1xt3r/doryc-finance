@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
-import type { AuthResponse } from '@supabase/supabase-js';
 import { createClient } from '../../lib/supabase/client';
 import LogoMark from '../components/LogoMark';
 import LanguageSelector from '../components/LanguageSelector';
@@ -10,18 +9,18 @@ import { useLanguage } from '../../lib/useLanguage';
 
 const AUTH_TIMEOUT_MS = 15_000;
 
-function withAuthTimeout(request: PromiseLike<AuthResponse>): Promise<AuthResponse> {
+function withAuthTimeout<T extends PromiseLike<unknown>>(request: T): Promise<Awaited<T>> {
   return Promise.race([
     Promise.resolve(request),
     new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Supabase está tardando demasiado en responder. Espera un momento e inténtalo nuevamente.')), AUTH_TIMEOUT_MS)),
-  ]);
+  ]) as Promise<Awaited<T>>;
 }
 
 export default function LoginPage() {
   const root = useRef<HTMLElement>(null);
   const { language, setLanguage } = useLanguage();
   const tr = (en: string, es: string) => language === 'es' ? es : en;
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -49,7 +48,11 @@ export default function LoginPage() {
     setBusy(true);
     setMessage('');
     try {
-      if (mode === 'signup') {
+      if (mode === 'forgot') {
+        const { error } = await withAuthTimeout(supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/auth/confirm?next=/auth/reset` }));
+        if (error) throw error;
+        setMessage(tr('If an account exists for this email, you will receive a recovery link.', 'Si existe una cuenta con este correo, recibirás un enlace de recuperación.'));
+      } else if (mode === 'signup') {
         const { error } = await withAuthTimeout(supabase.auth.signUp({
           email,
           password,
@@ -87,19 +90,21 @@ export default function LoginPage() {
         <div className="auth-card">
           <div className="auth-heading">
             <p className="eyebrow">{tr('WELCOME TO DORYC', 'BIENVENIDO A DORYC')}</p>
-            <h2>{mode === 'signin' ? tr('Sign in', 'Iniciar sesión') : tr('Create your account', 'Crea tu cuenta')}</h2>
-            <p>{mode === 'signin' ? tr('Use your email and password.', 'Usa tu correo y contraseña.') : tr('Your financial information will belong only to this account.', 'Tu información financiera pertenecerá únicamente a esta cuenta.')}</p>
+            <h2>{mode === 'signin' ? tr('Sign in', 'Iniciar sesión') : mode === 'signup' ? tr('Create your account', 'Crea tu cuenta') : tr('Recover access', 'Recupera el acceso')}</h2>
+            <p>{mode === 'signin' ? tr('Use your email and password.', 'Usa tu correo y contraseña.') : mode === 'signup' ? tr('Your financial information will belong only to this account.', 'Tu información financiera pertenecerá únicamente a esta cuenta.') : tr('We will send a secure password reset link.', 'Te enviaremos un enlace seguro para cambiar tu contraseña.')}</p>
           </div>
           <form onSubmit={submit}>
             {mode === 'signup' && <label><span>{tr('Name', 'Nombre')}</span><input name="fullName" required autoComplete="name" placeholder="Richard" /></label>}
             <label><span>{tr('Email', 'Correo')}</span><input name="email" required type="email" autoComplete="email" placeholder="tu@ejemplo.com" /></label>
-            <label><span>{tr('Password', 'Contraseña')}</span><div className="password-field"><input name="password" required type={showPassword ? 'text' : 'password'} minLength={8} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={tr('At least 8 characters', 'Mínimo 8 caracteres')} /><button type="button" aria-label={showPassword ? tr('Hide password', 'Ocultar contraseña') : tr('Show password', 'Mostrar contraseña')} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? tr('Hide', 'Ocultar') : tr('Show', 'Mostrar')}</button></div></label>
+            {mode !== 'forgot' && <label><span>{tr('Password', 'Contraseña')}</span><div className="password-field"><input name="password" required type={showPassword ? 'text' : 'password'} minLength={8} autoComplete={mode === 'signin' ? 'current-password' : 'new-password'} placeholder={tr('At least 8 characters', 'Mínimo 8 caracteres')} /><button type="button" aria-label={showPassword ? tr('Hide password', 'Ocultar contraseña') : tr('Show password', 'Mostrar contraseña')} onClick={() => setShowPassword((shown) => !shown)}>{showPassword ? tr('Hide', 'Ocultar') : tr('Show', 'Mostrar')}</button></div></label>}
             {message && <div className="auth-message" role="status">{message}</div>}
-            <button className="save-button" type="submit" disabled={busy}>{busy ? tr('Please wait…', 'Espera…') : mode === 'signin' ? tr('Sign in', 'Iniciar sesión') : tr('Create account', 'Crear cuenta')}</button>
+            <button className="save-button" type="submit" disabled={busy}>{busy ? tr('Please wait…', 'Espera…') : mode === 'signin' ? tr('Sign in', 'Iniciar sesión') : mode === 'signup' ? tr('Create account', 'Crear cuenta') : tr('Send recovery link', 'Enviar enlace')}</button>
           </form>
+          {mode === 'signin' && <button className="forgot-switch" type="button" onClick={() => { setMode('forgot'); setMessage(''); }}>{tr('Forgot your password?', '¿Olvidaste tu contraseña?')}</button>}
           <button className="mode-switch" type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setMessage(''); }}>
-            {mode === 'signin' ? tr('New to Doryc? Create an account', '¿Nuevo en Doryc? Crea una cuenta') : tr('Already have an account? Sign in', '¿Ya tienes cuenta? Inicia sesión')}
+            {mode === 'signin' ? tr('New to Doryc? Create an account', '¿Nuevo en Doryc? Crea una cuenta') : tr('Back to sign in', 'Volver a iniciar sesión')}
           </button>
+          <p className="auth-legal">{tr('By continuing you accept our', 'Al continuar aceptas nuestros')} <a href="/terms">{tr('Terms', 'Términos')}</a> · <a href="/privacy">{tr('Privacy Policy', 'Política de privacidad')}</a></p>
         </div>
       </section>
     </main>

@@ -5,6 +5,8 @@
 - Keep `.env.local` out of Git. Only the Supabase publishable key belongs in the browser.
 - Never add a Supabase service-role key to this application.
 - Apply `supabase/schema.sql` and confirm RLS is enabled on every public financial table.
+- Apply `supabase/optimize_financial_workflows.sql` and `supabase/launch_readiness.sql` after the base schema.
+- Run the database linter in Supabase and verify that account deletion is executable only by `authenticated`.
 - In Supabase Authentication, restrict redirect URLs to the local URL and the final production domain.
 - Review Auth and API logs after repeated `401`, `500` or timeout responses.
 
@@ -29,6 +31,9 @@ Do not use the reset scripts or seed data on the production project.
 5. Verify create, edit, payment, undo and delete flows.
 6. Set `NEXT_PUBLIC_APP_URL` to the public HTTPS address.
 7. Add that address to Supabase Auth redirect URLs.
+8. Configure the official support contact and operating entity in the legal pages.
+9. Configure the confirmation and password-recovery email templates.
+10. Confirm automated quality checks pass on the release commit.
 
 ## Incident recovery
 
