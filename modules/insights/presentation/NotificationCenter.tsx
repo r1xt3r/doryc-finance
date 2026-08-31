@@ -7,13 +7,14 @@ export default function NotificationCenter({ items, language, onNavigate, open, 
   const root = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLElement>(null);
   useEffect(() => {
+    if (!open) return;
     const close = (event: MouseEvent) => {
       const target = event.target as Node;
       if (!root.current?.contains(target) && !popover.current?.contains(target)) onClose();
     };
     document.addEventListener('mousedown', close);
     return () => document.removeEventListener('mousedown', close);
-  }, [onClose]);
+  }, [open, onClose]);
   const content = open && typeof document !== 'undefined' ? createPortal(<section ref={popover} className="notification-popover notification-popover-portal"><header><span><p className="eyebrow">DORYC SIGNALS</p><h3>{language === 'es' ? 'Tu atención financiera' : 'Your financial attention'}</h3></span><small>{items.length}</small></header>{items.map((item) => <button type="button" className={item.tone} key={item.id} onClick={() => { onNavigate(item.target); onClose(); }}><i/><span><strong>{item.title}</strong><small>{item.detail}</small></span><b>→</b></button>)}</section>, document.body) : null;
   return <div className="notification-center" ref={root}><button className="notification-trigger" type="button" aria-label={language === 'es' ? 'Notificaciones financieras' : 'Financial notifications'} aria-expanded={open} onClick={onToggle}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></svg>{items.length > 0 && <b>{items.length}</b>}</button>{content}</div>;
 }

@@ -443,7 +443,7 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 /* Functional experience preferences */
 .experience-trigger svg { display:block; }
 .experience-popover { width:286px; padding:18px; }
-.experience-popover-portal { position:fixed; z-index:360; top:82px; right:28px; pointer-events:auto; }
+.experience-popover-portal { position:fixed; z-index:360; right:auto; pointer-events:auto; }
 .notification-popover-portal { position:fixed; z-index:360; top:82px; right:76px; max-height:calc(100dvh - 98px); overflow:auto; }
 .experience-group { margin-top:16px; }
 .experience-group>span { display:block; margin-bottom:7px; color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
