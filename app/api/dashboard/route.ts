@@ -3,6 +3,7 @@ import { isSalary, monthEnd, nextMonthEnd, previousMonthEnd } from '../../../mod
 import { normalizeSalarySchedules } from '../../../modules/recurring-payments/application/normalizeSalarySchedules';
 import { addMonthsClamped, cardPurchaseDueDate } from '../../../lib/finance';
 import { calculateAccountBalances } from '../../../modules/accounts/domain/calculateAccountBalances';
+import { decimalNumber } from '../../../lib/decimal';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,7 +17,6 @@ type PersonalLoanRow = { id: string; direction: 'i_owe' | 'owed_to_me'; person_n
 type LoanPaymentRow = { id: string; personal_loan_id: string; account_id: string; amount_cents: number; payment_date: string; entry_type: 'payment' | 'advance' };
 type BankLoanRow = { id: string; bank: string; name: string; original_amount_cents: number; outstanding_balance_cents: number; installment_cents: number; next_due_date: string; payment_day: number; total_installments: number; paid_installments: number; annual_rate: number | null; pay_from_account_id: string | null; active: boolean };
 const BANK_CARD_RATES: Record<string, number> = { pichincha: 16.77, produbanco: 16.77, pacifico: 16.77, guayaquil: 16.77 };
-
 
 async function requireUser(authorization?: string | null) {
   const supabase = await createClient(authorization);
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
     }
     const body = await request.json() as Record<string, string>;
     if (body.entity === 'accountUpdate') {
-      const balanceCents = Math.round(Number(body.balance || 0) * 100);
+      const balanceCents = Math.round(decimalNumber(body.balance || 0) * 100);
       if (!body.id || !body.name?.trim() || !body.bank?.trim() || !body.accountType?.trim() || !Number.isFinite(balanceCents)) return Response.json({ error: 'Complete the account information.' }, { status: 400 });
       const snapshot = await getDashboard(authorization);
       const currentAccount = snapshot?.accounts.find((account) => account.id === body.id);
@@ -168,7 +168,7 @@ export async function POST(request: Request) {
     }
     if (body.entity === 'transactionUpdate') {
       const type = body.type?.toLowerCase();
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       if (!body.id || !['expense', 'income', 'transfer'].includes(type) || !body.description?.trim() || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the movement information.' }, { status: 400 });
       if (type === 'expense' || type === 'transfer') {
         const [{ data: previous }, snapshot] = await Promise.all([
@@ -186,7 +186,7 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization));
     }
     if (body.entity === 'recurringUpdate') {
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       const flowType = body.flowType === 'income' ? 'income' : 'expense';
       const accountId = flowType === 'income' ? body.toAccountId : body.fromAccountId;
       if (!body.id || !body.description?.trim() || amountCents <= 0 || !body.date || !accountId) return Response.json({ error: 'Complete the recurring payment information.' }, { status: 400 });
@@ -196,26 +196,26 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization));
     }
     if (body.entity === 'account') {
-      const balanceCents = Math.round(Number(body.balance || 0) * 100);
+      const balanceCents = Math.round(decimalNumber(body.balance || 0) * 100);
       if (!body.name?.trim() || !body.bank?.trim() || !body.accountType?.trim() || !Number.isFinite(balanceCents)) return Response.json({ error: 'Complete the account information.' }, { status: 400 });
       const { error: insertError } = await supabase.from('accounts').insert({ user_id: user.id, name: body.name.trim(), bank: body.bank.trim(), account_type: body.accountType, starting_balance_cents: balanceCents });
       if (insertError) throw insertError;
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     if (body.entity === 'bankLoan') {
-      const outstandingCents = Math.round(Number(body.outstandingBalance) * 100);
-      const installmentCents = Math.round(Number(body.installment) * 100);
-      const originalCents = Math.round(Number(body.originalAmount || body.outstandingBalance) * 100);
+      const outstandingCents = Math.round(decimalNumber(body.outstandingBalance) * 100);
+      const installmentCents = Math.round(decimalNumber(body.installment) * 100);
+      const originalCents = Math.round(decimalNumber(body.originalAmount || body.outstandingBalance) * 100);
       const paymentDay = body.nextDueDate ? Number(body.nextDueDate.slice(-2)) : 0;
       if (!body.bank || !body.name?.trim() || outstandingCents < 0 || installmentCents <= 0 || !body.nextDueDate || !paymentDay || !Number(body.totalInstallments)) return Response.json({ error: 'Complete the bank loan information.' }, { status: 400 });
-      const { error: insertError } = await supabase.from('bank_loans').insert({ user_id: user.id, bank: body.bank, name: body.name.trim(), original_amount_cents: originalCents, outstanding_balance_cents: outstandingCents, installment_cents: installmentCents, next_due_date: body.nextDueDate, payment_day: paymentDay, total_installments: Number(body.totalInstallments), paid_installments: Number(body.paidInstallments || 0), annual_rate: body.annualRate ? Number(body.annualRate) : null, pay_from_account_id: body.payFromAccountId || null });
+      const { error: insertError } = await supabase.from('bank_loans').insert({ user_id: user.id, bank: body.bank, name: body.name.trim(), original_amount_cents: originalCents, outstanding_balance_cents: outstandingCents, installment_cents: installmentCents, next_due_date: body.nextDueDate, payment_day: paymentDay, total_installments: Number(body.totalInstallments), paid_installments: Number(body.paidInstallments || 0), annual_rate: body.annualRate ? decimalNumber(body.annualRate) : null, pay_from_account_id: body.payFromAccountId || null });
       if (insertError) throw insertError;
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     if (body.entity === 'creditCard') {
-      const creditLimitCents = Math.round(Number(body.creditLimit) * 100);
-      const usedCents = Math.round(Number(body.openingUsed || 0) * 100);
-      const statementCents = Math.round(Number(body.currentStatement || 0) * 100);
+      const creditLimitCents = Math.round(decimalNumber(body.creditLimit) * 100);
+      const usedCents = Math.round(decimalNumber(body.openingUsed || 0) * 100);
+      const statementCents = Math.round(decimalNumber(body.currentStatement || 0) * 100);
       if (!body.name?.trim() || !body.bank?.trim() || creditLimitCents <= 0 || usedCents < 0 || usedCents > creditLimitCents) return Response.json({ error: 'Check the card limit and used balance.' }, { status: 400 });
       const bankKey = body.bank.trim().toLowerCase().replace('banco ', '');
       const bankRate = BANK_CARD_RATES[bankKey] ?? 16.77;
@@ -225,7 +225,7 @@ export async function POST(request: Request) {
     }
     if (body.entity === 'creditCardStatement') {
       const hasStatementAmount = body.currentStatement !== undefined && body.currentStatement !== '';
-      const statementCents = hasStatementAmount ? Math.round(Number(body.currentStatement) * 100) : null;
+      const statementCents = hasStatementAmount ? Math.round(decimalNumber(body.currentStatement) * 100) : null;
       if (!body.creditCardId || (statementCents !== null && (!Number.isFinite(statementCents) || statementCents < 0))) return Response.json({ error: 'Enter a valid statement amount.' }, { status: 400 });
       const update: Record<string, string | number | null> = {};
       if (statementCents !== null) update.current_statement_cents = statementCents;
@@ -233,13 +233,13 @@ export async function POST(request: Request) {
       if (body.network) update.network = body.network;
       if (body.paymentDay) update.payment_day = Number(body.paymentDay);
       if (body.statementDay) update.statement_day = Number(body.statementDay);
-      if (body.creditLimit) update.credit_limit_cents = Math.round(Number(body.creditLimit) * 100);
+      if (body.creditLimit) update.credit_limit_cents = Math.round(decimalNumber(body.creditLimit) * 100);
       const { error: updateError } = await supabase.from('credit_cards').update(update).eq('id', body.creditCardId);
       if (updateError) throw updateError;
       return Response.json(await getDashboard(authorization));
     }
     if (body.entity === 'personalLoan') {
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       if (!['i_owe', 'owed_to_me'].includes(body.direction) || !body.personName?.trim() || amountCents <= 0) return Response.json({ error: 'Complete the loan information.' }, { status: 400 });
       if (body.direction === 'owed_to_me' && body.accountId && !await hasFunds(body.accountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { error: insertError } = await supabase.from('personal_loans').insert({ user_id: user.id, direction: body.direction, person_name: body.personName.trim(), amount_cents: amountCents, account_id: body.accountId || null, due_date: body.dueDate || null, note: body.note?.trim() || null });
@@ -247,7 +247,7 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     if (body.entity === 'creditCardPayment') {
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       if (!body.creditCardId || !body.fromAccountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the card payment.' }, { status: 400 });
       const { error: atomicError } = await supabase.rpc('doryc_pay_credit_card', { p_card_id: body.creditCardId, p_account_id: body.fromAccountId, p_amount_cents: amountCents, p_payment_date: body.date, p_note: body.note || null });
       if (!atomicError) return Response.json(await getDashboard(authorization), { status: 201 });
@@ -268,7 +268,7 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     if (body.entity === 'bankLoanPayment') {
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       if (!body.bankLoanId || !body.fromAccountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the bank loan payment.' }, { status: 400 });
       const { error: atomicError } = await supabase.rpc('doryc_pay_bank_loan', { p_loan_id: body.bankLoanId, p_account_id: body.fromAccountId, p_amount_cents: amountCents, p_payment_date: body.date });
       if (!atomicError) return Response.json(await getDashboard(authorization), { status: 201 });
@@ -286,7 +286,7 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     if (body.entity === 'personalLoanPayment') {
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       if (!body.personalLoanId || !body.accountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the loan payment.' }, { status: 400 });
       const { error: atomicError } = await supabase.rpc('doryc_pay_personal_loan', { p_loan_id: body.personalLoanId, p_account_id: body.accountId, p_amount_cents: amountCents, p_payment_date: body.date });
       if (!atomicError) return Response.json(await getDashboard(authorization), { status: 201 });
@@ -302,7 +302,7 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     if (body.entity === 'personalLoanIncrease') {
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       if (!body.personalLoanId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the additional debt information.' }, { status: 400 });
       const { data: loan, error: loanError } = await supabase.from('personal_loans').select('amount_cents,account_id').eq('id', body.personalLoanId).single();
       const accountId = body.accountId || loan?.account_id;
@@ -319,7 +319,7 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization));
     }
     if (body.entity === 'cardPurchase') {
-      const amountCents = Math.round(Number(body.amount) * 100);
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
       const months = Number(body.installmentMonths || 1);
       const { data: ownedCard } = await supabase.from('credit_cards').select('id').eq('id', body.creditCardId).maybeSingle();
       if (!ownedCard || !body.description?.trim() || amountCents <= 0 || months < 1 || months > 36 || !body.date) return Response.json({ error: 'Complete the card purchase information.' }, { status: 400 });
@@ -334,7 +334,7 @@ export async function POST(request: Request) {
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     const type = body.type?.toLowerCase();
-    const amountCents = Math.round(Number(body.amount) * 100);
+    const amountCents = Math.round(decimalNumber(body.amount) * 100);
     if (!['expense', 'income', 'transfer', 'recurring'].includes(type) || !body.description?.trim() || !Number.isFinite(amountCents) || amountCents <= 0 || !body.date) {
       return Response.json({ error: 'Please complete all required fields.' }, { status: 400 });
     }
