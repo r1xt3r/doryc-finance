@@ -4,6 +4,7 @@ import { normalizeSalarySchedules } from '../../../modules/recurring-payments/ap
 import { addMonthsClamped, cardPurchaseDueDate } from '../../../lib/finance';
 import { calculateAccountBalances } from '../../../modules/accounts/domain/calculateAccountBalances';
 import { decimalNumber } from '../../../lib/decimal';
+import { digitalTransferFeeCents } from '../../../lib/transferFees';
 
 export const dynamic = 'force-dynamic';
 
@@ -340,17 +341,27 @@ export async function POST(request: Request) {
     }
     const recurringFlow = body.flowType === 'income' ? 'income' : 'expense';
     const accountIds = [body.fromAccountId, body.toAccountId].filter(Boolean);
-    const { data: owned } = await supabase.from('accounts').select('id').in('id', accountIds);
+    const { data: owned } = await supabase.from('accounts').select('id,bank').in('id', accountIds);
     const ownedIds = new Set((owned || []).map((account) => account.id));
     if ((type === 'expense' || (type === 'recurring' && recurringFlow === 'expense') || type === 'transfer') && !ownedIds.has(body.fromAccountId)) return Response.json({ error: 'Invalid source account.' }, { status: 400 });
     if ((type === 'income' || (type === 'recurring' && recurringFlow === 'income') || type === 'transfer') && !ownedIds.has(body.toAccountId)) return Response.json({ error: 'Invalid destination account.' }, { status: 400 });
     if (type === 'transfer' && body.fromAccountId === body.toAccountId) return Response.json({ error: 'Choose two different accounts.' }, { status: 400 });
-    if ((type === 'expense' || type === 'transfer') && !await hasFunds(body.fromAccountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
+    const accountBank = new Map((owned || []).map((account) => [account.id, account.bank]));
+    const transferFeeCents = type === 'transfer'
+      ? digitalTransferFeeCents(accountBank.get(body.fromAccountId) || '', accountBank.get(body.toAccountId) || '')
+      : 0;
+    if ((type === 'expense' || type === 'transfer') && !await hasFunds(body.fromAccountId, amountCents + transferFeeCents)) return Response.json({ error: 'Insufficient funds in the selected account, including the transfer fee.' }, { status: 400 });
 
     const recurringDate = recurringFlow === 'income' && (body.category === 'Salary' || /salary|sueldo/i.test(body.description)) ? monthEnd(body.date) : body.date;
+    const transactionRows = type === 'transfer' && transferFeeCents > 0
+      ? [
+          { user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId, to_account_id: body.toAccountId, category: body.category || null, payment_method: body.paymentMethod || 'Bank Transfer' },
+          { user_id: user.id, type: 'expense', description: 'Comisión por transferencia interbancaria', amount_cents: transferFeeCents, transaction_date: body.date, from_account_id: body.fromAccountId, to_account_id: null, category: 'Bank fees', payment_method: 'Bank Transfer' },
+        ]
+      : [{ user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null }];
     const result = type === 'recurring'
       ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: recurringDate, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null })
-      : await supabase.from('transactions').insert({ user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null });
+      : await supabase.from('transactions').insert(transactionRows);
     if (result.error) throw result.error;
     return Response.json(await getDashboard(authorization), { status: 201 });
   } catch (error) {
