@@ -18,6 +18,7 @@ create table if not exists public.transactions (
   description text not null,
   amount_cents integer not null check (amount_cents > 0),
   transaction_date date not null,
+  budget_month date,
   from_account_id uuid references public.accounts(id) on delete restrict,
   to_account_id uuid references public.accounts(id) on delete restrict,
   category text,

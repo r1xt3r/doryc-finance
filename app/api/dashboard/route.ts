@@ -9,7 +9,7 @@ import { digitalTransferFeeCents } from '../../../lib/transferFees';
 export const dynamic = 'force-dynamic';
 
 type AccountRow = { id: string; name: string; bank: string; account_type: string; starting_balance_cents: number };
-type TransactionRow = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount_cents: number; transaction_date: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; created_at: string };
+type TransactionRow = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount_cents: number; transaction_date: string; budget_month: string | null; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; created_at: string };
 type RecurringRow = { id: string; name: string; amount_cents: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: boolean };
 type CreditCardRow = { id: string; name: string; bank: string; credit_limit_cents: number; opening_used_cents: number; current_statement_cents: number; annual_effective_rate: number; payment_day: number | null; statement_day: number | null; network: string; pay_from_account_id: string | null };
 type CardPurchaseRow = { id: string; credit_card_id: string; description: string; amount_cents: number; purchase_date: string; category: string | null; installment_months: number; installments_paid: number; with_interest: boolean };
@@ -34,7 +34,7 @@ async function getDashboard(authorization?: string | null) {
   if (!user) return null;
   const [accountQuery, transactionQuery, recurringQuery, cardQuery, cardPurchaseQuery, cardPaymentQuery, personalLoanQuery, loanPaymentQuery, preferenceQuery, bankLoanQuery] = await Promise.all([
     supabase.from('accounts').select('id,name,bank,account_type,starting_balance_cents').eq('active', true).order('created_at'),
-    supabase.from('transactions').select('id,type,description,amount_cents,transaction_date,from_account_id,to_account_id,category,payment_method,created_at').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }),
+    supabase.from('transactions').select('id,type,description,amount_cents,transaction_date,budget_month,from_account_id,to_account_id,category,payment_method,created_at').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }),
     supabase.from('recurring_payments').select('id,name,amount_cents,next_due_date,pay_from_account_id,category,payment_method,paid_this_cycle').eq('active', true).order('next_due_date'),
     supabase.from('credit_cards').select('id,name,bank,credit_limit_cents,opening_used_cents,current_statement_cents,annual_effective_rate,payment_day,statement_day,network,pay_from_account_id').eq('active', true).order('created_at'),
     supabase.from('credit_card_purchases').select('id,credit_card_id,description,amount_cents,purchase_date,category,installment_months,installments_paid,with_interest').eq('active', true).order('purchase_date', { ascending: false }).order('created_at', { ascending: false }),
@@ -91,13 +91,13 @@ async function getDashboard(authorization?: string | null) {
     ...personalLoans.map((loan) => {
       const amountCents = Math.max(0, loan.amount_cents - (advancesByLoan.get(loan.id) || 0));
       const incoming = loan.direction === 'i_owe';
-      return { id: `debt-loan-${loan.id}`, type: incoming ? 'income' as const : 'expense' as const, description: incoming ? `Borrowed from ${loan.person_name}` : `Lent to ${loan.person_name}`, amount_cents: amountCents, transaction_date: loan.created_at?.slice(0, 10) || loan.due_date || new Date().toISOString().slice(0, 10), from_account_id: incoming ? null : loan.account_id, to_account_id: incoming ? loan.account_id : null, category: 'Debt movement', payment_method: 'Personal IOU', created_at: loan.created_at || '', debtMovement: true };
+      return { id: `debt-loan-${loan.id}`, type: incoming ? 'income' as const : 'expense' as const, description: incoming ? `Borrowed from ${loan.person_name}` : `Lent to ${loan.person_name}`, amount_cents: amountCents, transaction_date: loan.created_at?.slice(0, 10) || loan.due_date || new Date().toISOString().slice(0, 10), budget_month: null, from_account_id: incoming ? null : loan.account_id, to_account_id: incoming ? loan.account_id : null, category: 'Debt movement', payment_method: 'Personal IOU', created_at: loan.created_at || '', debtMovement: true };
     }).filter((movement) => movement.amount_cents > 0),
     ...loanPayments.filter((payment) => loanById.has(payment.personal_loan_id)).map((payment) => {
       const loan = loanById.get(payment.personal_loan_id)!;
       const incoming = payment.entry_type === 'advance' ? loan.direction === 'i_owe' : loan.direction === 'owed_to_me';
       const description = payment.entry_type === 'advance' ? (incoming ? `Borrowed more from ${loan.person_name}` : `Lent more to ${loan.person_name}`) : (incoming ? `Repayment received from ${loan.person_name}` : `Debt repayment to ${loan.person_name}`);
-      return { id: `debt-entry-${payment.id}`, type: incoming ? 'income' as const : 'expense' as const, description, amount_cents: payment.amount_cents, transaction_date: payment.payment_date, from_account_id: incoming ? null : payment.account_id, to_account_id: incoming ? payment.account_id : null, category: 'Debt movement', payment_method: 'Personal IOU', created_at: payment.payment_date, debtMovement: true };
+      return { id: `debt-entry-${payment.id}`, type: incoming ? 'income' as const : 'expense' as const, description, amount_cents: payment.amount_cents, transaction_date: payment.payment_date, budget_month: null, from_account_id: incoming ? null : payment.account_id, to_account_id: incoming ? payment.account_id : null, category: 'Debt movement', payment_method: 'Personal IOU', created_at: payment.payment_date, debtMovement: true };
     }),
   ];
   const cashFlowTransactions = [
@@ -107,7 +107,7 @@ async function getDashboard(authorization?: string | null) {
   return {
     name: String(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Richard').split(' ')[0],
     accounts,
-    transactions: cashFlowTransactions.map((tx) => ({ ...tx, date: tx.transaction_date, amount: tx.amount_cents / 100 })),
+    transactions: cashFlowTransactions.map((tx) => ({ ...tx, date: tx.transaction_date, budgetMonth: tx.budget_month || `${tx.transaction_date.slice(0, 7)}-01`, amount: tx.amount_cents / 100 })),
     recurring: recurringRows.map((item) => ({ ...item, amount: item.amount_cents / 100, flowType: item.payment_method === 'Recurring Income' ? 'income' : 'expense' })),
     creditCards: (cardRows || []).map((card) => ({
       id: card.id, name: card.name, bank: card.bank, creditLimit: card.credit_limit_cents / 100,
@@ -124,8 +124,8 @@ async function getDashboard(authorization?: string | null) {
     })),
     cardPayments: cardPayments.map((payment) => ({ id: payment.id, creditCardId: payment.credit_card_id, fromAccountId: payment.from_account_id, amount: payment.amount_cents / 100, date: payment.payment_date, note: payment.note })),
     onboardingCompleted: Boolean(preferenceQuery.data?.onboarding_completed),
-    income: transactions.filter((tx) => tx.type === 'income' && tx.transaction_date.startsWith(currentMonth)).reduce((sum, tx) => sum + tx.amount_cents, 0) / 100,
-    spent: transactions.filter((tx) => tx.type === 'expense' && tx.transaction_date.startsWith(currentMonth)).reduce((sum, tx) => sum + tx.amount_cents, 0) / 100,
+    income: transactions.filter((tx) => tx.type === 'income' && (tx.budget_month || tx.transaction_date).startsWith(currentMonth)).reduce((sum, tx) => sum + tx.amount_cents, 0) / 100,
+    spent: transactions.filter((tx) => tx.type === 'expense' && (tx.budget_month || tx.transaction_date).startsWith(currentMonth)).reduce((sum, tx) => sum + tx.amount_cents, 0) / 100,
   };
 }
 
@@ -151,6 +151,7 @@ export async function POST(request: Request) {
       return Boolean(account && Math.round(account.balance * 100) >= amountCents);
     }
     const body = await request.json() as Record<string, string>;
+    const budgetMonthFor = (date: string) => `${(body.budgetMonth || date).slice(0, 7)}-01`;
     if (body.entity === 'accountUpdate') {
       const balanceCents = Math.round(decimalNumber(body.balance || 0) * 100);
       if (!body.id || !body.name?.trim() || !body.bank?.trim() || !body.accountType?.trim() || !Number.isFinite(balanceCents)) return Response.json({ error: 'Complete the account information.' }, { status: 400 });
@@ -182,7 +183,7 @@ export async function POST(request: Request) {
         if (previous?.to_account_id === body.fromAccountId && (previous.type === 'income' || previous.type === 'transfer')) availableCents -= previous.amount_cents;
         if (!source || availableCents < amountCents) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       }
-      const { error: updateError } = await supabase.from('transactions').update({ type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null }).eq('id', body.id);
+      const { error: updateError } = await supabase.from('transactions').update({ type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null }).eq('id', body.id);
       if (updateError) throw updateError;
       return Response.json(await getDashboard(authorization));
     }
@@ -265,7 +266,7 @@ export async function POST(request: Request) {
           await Promise.all(dueInstallments.map((item) => supabase.from('credit_card_purchases').update({ installments_paid: item.installments_paid + 1 }).eq('id', item.id)));
         }
       }
-      await supabase.from('transactions').insert({ user_id: user.id, type: 'expense', description: body.note || 'Credit card payment', amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId, to_account_id: null, category: 'Credit card', payment_method: 'Bank Transfer' });
+      await supabase.from('transactions').insert({ user_id: user.id, type: 'expense', description: body.note || 'Credit card payment', amount_cents: amountCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId, to_account_id: null, category: 'Credit card', payment_method: 'Bank Transfer' });
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
     if (body.entity === 'bankLoanPayment') {
@@ -282,7 +283,7 @@ export async function POST(request: Request) {
       const nextDueDate = coversInstallment ? addMonthsClamped(loan.next_due_date) : loan.next_due_date;
       const { error: updateError } = await supabase.from('bank_loans').update({ outstanding_balance_cents: Math.max(0, loan.outstanding_balance_cents - paidCents), paid_installments: coversInstallment ? Math.min(loan.total_installments, loan.paid_installments + 1) : loan.paid_installments, next_due_date: nextDueDate, pay_from_account_id: body.fromAccountId }).eq('id', body.bankLoanId);
       if (updateError) throw updateError;
-      const { error: transactionError } = await supabase.from('transactions').insert({ user_id: user.id, type: 'expense', description: `${loan.name} installment`, amount_cents: paidCents, transaction_date: body.date, from_account_id: body.fromAccountId, to_account_id: null, category: 'Loan', payment_method: 'Automatic Debit' });
+      const { error: transactionError } = await supabase.from('transactions').insert({ user_id: user.id, type: 'expense', description: `${loan.name} installment`, amount_cents: paidCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId, to_account_id: null, category: 'Loan', payment_method: 'Automatic Debit' });
       if (transactionError) throw transactionError;
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
@@ -355,10 +356,10 @@ export async function POST(request: Request) {
     const recurringDate = recurringFlow === 'income' && (body.category === 'Salary' || /salary|sueldo/i.test(body.description)) ? monthEnd(body.date) : body.date;
     const transactionRows = type === 'transfer' && transferFeeCents > 0
       ? [
-          { user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId, to_account_id: body.toAccountId, category: body.category || null, payment_method: body.paymentMethod || 'Bank Transfer' },
-          { user_id: user.id, type: 'expense', description: 'Comisión por transferencia interbancaria', amount_cents: transferFeeCents, transaction_date: body.date, from_account_id: body.fromAccountId, to_account_id: null, category: 'Bank fees', payment_method: 'Bank Transfer' },
+          { user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId, to_account_id: body.toAccountId, category: body.category || null, payment_method: body.paymentMethod || 'Bank Transfer' },
+          { user_id: user.id, type: 'expense', description: 'Comisión por transferencia interbancaria', amount_cents: transferFeeCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId, to_account_id: null, category: 'Bank fees', payment_method: 'Bank Transfer' },
         ]
-      : [{ user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null }];
+      : [{ user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null }];
     const result = type === 'recurring'
       ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: recurringDate, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null })
       : await supabase.from('transactions').insert(transactionRows);
@@ -375,7 +376,8 @@ export async function PATCH(request: Request) {
     const authorization = request.headers.get('authorization');
     const { supabase, user } = await requireUser(authorization);
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    const body = await request.json() as { recurringId?: string; personalLoanId?: string; date?: string; action?: 'pay' | 'undo' | 'settle' | 'detachAccount' };
+    const body = await request.json() as { recurringId?: string; personalLoanId?: string; date?: string; budgetMonth?: string; action?: 'pay' | 'undo' | 'settle' | 'detachAccount' };
+    const budgetMonth = `${(body.budgetMonth || body.date || '').slice(0, 7)}-01`;
     if (body.personalLoanId && body.action === 'detachAccount') {
       const { error: detachError } = await supabase.from('personal_loans').update({ account_id: null }).eq('id', body.personalLoanId);
       if (detachError) throw detachError;
@@ -391,7 +393,7 @@ export async function PATCH(request: Request) {
     if (paymentError || !payment) return Response.json({ error: 'Recurring payment not found.' }, { status: 404 });
     const flowType = payment.payment_method === 'Recurring Income' ? 'income' : 'expense';
     const recurringRpc = body.action === 'undo' ? 'doryc_undo_recurring' : 'doryc_record_recurring';
-    const recurringArgs = body.action === 'undo' ? { p_recurring_id: payment.id } : { p_recurring_id: payment.id, p_payment_date: body.date };
+    const recurringArgs = body.action === 'undo' ? { p_recurring_id: payment.id } : { p_recurring_id: payment.id, p_payment_date: body.date, p_budget_month: budgetMonth };
     const { error: atomicRecurringError } = await supabase.rpc(recurringRpc, recurringArgs);
     if (!atomicRecurringError) return Response.json(await getDashboard(authorization));
     if (/insufficient funds/i.test(atomicRecurringError.message)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
@@ -419,7 +421,7 @@ export async function PATCH(request: Request) {
     }
     const { error: transactionError } = await supabase.from('transactions').insert({
       user_id: user.id, type: flowType, description: payment.name, amount_cents: payment.amount_cents,
-      transaction_date: body.date, from_account_id: flowType === 'expense' ? payment.pay_from_account_id : null,
+      transaction_date: body.date, budget_month: budgetMonth, from_account_id: flowType === 'expense' ? payment.pay_from_account_id : null,
       to_account_id: flowType === 'income' ? payment.pay_from_account_id : null,
       category: payment.category || 'Subscriptions', payment_method: payment.payment_method,
     });

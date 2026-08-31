@@ -22,7 +22,7 @@ import MoneyCalendar from '../modules/calendar/presentation/MoneyCalendar';
 import { salaryPaymentWindow } from '../modules/recurring-payments/domain/salarySchedule';
 
 type Account = { id: string; name: string; bank: string; accountType: string; startingBalance: number; balance: number };
-type Transaction = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount: number; date: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; debtMovement?: boolean };
+type Transaction = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount: number; date: string; budgetMonth: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; debtMovement?: boolean };
 type Recurring = { id: string; name: string; amount: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: number; flowType: 'income' | 'expense' };
 type CreditCard = { id: string; name: string; bank: string; creditLimit: number; openingUsed: number; currentStatement: number; annualRate: number; paymentDay: number | null; statementDay: number | null; network: string; payFromAccountId: string | null };
 type CardPurchase = { id: string; creditCardId: string; description: string; amount: number; date: string; category: string | null; installmentMonths: number; installmentsPaid: number; withInterest: boolean };
@@ -258,7 +258,7 @@ export default function Home() {
   const recurringExpenses = data.recurring.filter((item) => item.flowType !== 'income');
   const expectedIncome = recurringIncome.filter((item) => !item.paid_this_cycle || item.next_due_date <= today);
   const receivedThisCycle = recurringIncome.filter((item) => item.paid_this_cycle && item.next_due_date > today);
-  const allUpcoming = recurringExpenses.filter((item) => !item.paid_this_cycle || item.next_due_date <= today);
+  const allUpcoming = recurringExpenses;
   const paidThisCycle = recurringExpenses.filter((item) => item.paid_this_cycle && item.next_due_date > today);
   const upcoming = showAllUpcoming ? allUpcoming : allUpcoming.slice(0, 3);
   const accountMap = useMemo(() => new Map(data.accounts.map((account) => [account.id, account.name])), [data.accounts]);
@@ -326,7 +326,7 @@ export default function Home() {
     const month = today.slice(0, 7);
     const totals = new Map<string, { amount: number; count: number }>();
     data.transactions
-      .filter((transaction) => transaction.type === 'expense' && !transaction.debtMovement && transaction.date.startsWith(month))
+      .filter((transaction) => transaction.type === 'expense' && !transaction.debtMovement && (transaction.budgetMonth || transaction.date).startsWith(month))
       .forEach((transaction) => {
         const category = transaction.category || 'Other';
         const current = totals.get(category) || { amount: 0, count: 0 };
@@ -590,7 +590,7 @@ export default function Home() {
     setPayingRecurringId(payment.id);
     setError('');
     try {
-      const response = await authenticatedFetch('/api/dashboard', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recurringId: payment.id, date: today, action: 'pay' }) });
+      const response = await authenticatedFetch('/api/dashboard', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ recurringId: payment.id, date: today, budgetMonth: payment.next_due_date.slice(0, 7), action: 'pay' }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Unable to mark this payment as paid.');
       setData(result);
@@ -608,8 +608,8 @@ export default function Home() {
     setError('');
     try {
       const body = payment.kind === 'creditCard'
-        ? { entity: 'creditCardPayment', creditCardId: payment.sourceId, fromAccountId: payment.pay_from_account_id, amount: payment.amount, date: today, note: `${payment.name} · Bank Transfer` }
-        : { entity: 'bankLoanPayment', bankLoanId: payment.sourceId, fromAccountId: payment.pay_from_account_id, amount: payment.amount, date: today };
+        ? { entity: 'creditCardPayment', creditCardId: payment.sourceId, fromAccountId: payment.pay_from_account_id, amount: payment.amount, date: today, budgetMonth: payment.next_due_date.slice(0, 7), note: `${payment.name} · Bank Transfer` }
+        : { entity: 'bankLoanPayment', bankLoanId: payment.sourceId, fromAccountId: payment.pay_from_account_id, amount: payment.amount, date: today, budgetMonth: payment.next_due_date.slice(0, 7) };
       const response = await authenticatedFetch('/api/dashboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Unable to mark this payment as paid.');
@@ -816,7 +816,8 @@ export default function Home() {
               <form onSubmit={submitEntry}>
                 {activeAction === 'Recurring' && <label><span>Schedule type</span><select name="flowType" value={recurringFlow} onChange={(event) => setRecurringFlow(event.target.value as 'income' | 'expense')}><option value="expense">Recurring expense</option><option value="income">Recurring income</option></select></label>}
                 <label><span>{tr('Description', 'Descripción')}</span><input name="description" required autoFocus defaultValue={editingTransaction ? transactionDescription(editingTransaction.description) : editingRecurring?.name || ''} placeholder={activeAction === 'Recurring' && recurringFlow === 'income' ? tr('Monthly salary', 'Sueldo mensual') : activeAction === 'Transfer' ? tr('For example: Transfer to Pichincha', 'Por ejemplo: Transferencia a Pichincha') : tr('What was it for?', '¿Para qué fue?')} /></label>
-                <div className="field-row"><label><span>{tr('Amount', 'Monto')}</span><input name="amount" required inputMode="decimal" type="text" defaultValue={editingTransaction?.amount || editingRecurring?.amount || (activeAction === 'Recurring' && recurringFlow === 'income' ? '1300' : '')} placeholder="$0,00" /></label><label><span>{activeAction === 'Recurring' ? recurringFlow === 'income' ? tr('Next income date', 'Próxima fecha de ingreso') : tr('Next due date', 'Próxima fecha de pago') : tr('Date', 'Fecha')}</span><input name="date" required type="date" defaultValue={editingTransaction?.date || editingRecurring?.next_due_date || today} /></label></div>
+                <div className="field-row"><label><span>{tr('Amount', 'Monto')}</span><input name="amount" required inputMode="decimal" type="text" defaultValue={editingTransaction?.amount || editingRecurring?.amount || (activeAction === 'Recurring' && recurringFlow === 'income' ? '1300' : '')} placeholder="$0,00" /></label><label><span>{activeAction === 'Recurring' ? recurringFlow === 'income' ? tr('Next income date', 'Próxima fecha de ingreso') : tr('Next due date', 'Próxima fecha de pago') : tr('Movement date', 'Fecha del movimiento')}</span><input name="date" required type="date" defaultValue={editingTransaction?.date || editingRecurring?.next_due_date || today} /></label></div>
+                {activeAction !== 'Recurring' && <label><span>{tr('Belongs to month', 'Corresponde al mes')}</span><input name="budgetMonth" required type="month" defaultValue={(editingTransaction?.budgetMonth || today).slice(0, 7)} /><small className="field-help">{tr('The account changes on the movement date; reports use this month.', 'La cuenta cambia en la fecha del movimiento; los reportes utilizan este mes.')}</small></label>}
                 {activeAction === 'Income' || (activeAction === 'Recurring' && recurringFlow === 'income') ? (
                   <label><span>{tr('To account', 'Cuenta de destino')}</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || editingRecurring?.pay_from_account_id || ''}><option value="" disabled>{tr('Select destination', 'Selecciona un destino')}</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
                 ) : (
