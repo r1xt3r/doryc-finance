@@ -55,7 +55,17 @@ function incomeTiming(item: Recurring, language: 'en' | 'es') {
 }
 
 async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}) {
-  const { data: { session } } = await createClient().auth.getSession();
+  const session = await new Promise<Awaited<ReturnType<ReturnType<typeof createClient>['auth']['getSession']>>['data']['session']>((resolve) => {
+    let settled = false;
+    const finish = (value: Awaited<ReturnType<ReturnType<typeof createClient>['auth']['getSession']>>['data']['session']) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = window.setTimeout(() => finish(null), 4_000);
+    createClient().auth.getSession().then(({ data }) => finish(data.session)).catch(() => finish(null));
+  });
   const headers = new Headers(init.headers);
   const accessToken = session?.access_token || window.sessionStorage.getItem('doryc_access_token') || window.sessionStorage.getItem('moro_access_token');
   if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
