@@ -444,6 +444,7 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 .experience-trigger svg { display:block; }
 .experience-popover { width:286px; padding:18px; }
 .experience-popover-portal { position:fixed; z-index:360; top:82px; right:28px; pointer-events:auto; }
+.notification-popover-portal { position:fixed; z-index:360; top:82px; right:76px; max-height:calc(100dvh - 98px); overflow:auto; }
 .experience-group { margin-top:16px; }
 .experience-group>span { display:block; margin-bottom:7px; color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
 .theme-options { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
@@ -478,6 +479,10 @@ html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-ac
   .auth-panel { position:relative; z-index:2; margin-top:-28px; padding:38px 24px max(52px,env(safe-area-inset-bottom)); border-right:1px solid var(--line); border-radius:28px 28px 0 0; }
 }
 @media (max-width:520px) {
+  .topbar { display:flex; flex-direction:column; align-items:stretch; gap:12px; margin-bottom:20px; }
+  .topbar>div:first-child { min-width:0; padding-bottom:0; }
+  .topbar h1 { max-width:100%; padding-bottom:0; font-size:clamp(27px,8vw,36px); line-height:1.05; overflow-wrap:anywhere; }
+  .topbar-actions { order:-1; align-self:flex-end; width:100%; flex-wrap:nowrap; justify-content:flex-end; }
   .auth-brand { padding:76px 20px 58px; }
   .auth-brand>.brand-mark { top:20px; left:20px; }
   .auth-brand h1 { font-size:clamp(39px,12.5vw,52px); letter-spacing:-.055em; }
@@ -489,6 +494,7 @@ html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-ac
   .auth-heading { margin-bottom:23px; }.auth-heading h2 { font-size:32px; }
   .auth-card form { gap:14px; }.auth-card input { min-height:51px; padding-top:14px; padding-bottom:14px; }
   .experience-popover { position:fixed; top:72px; right:12px; width:calc(100vw - 24px); }
+  .notification-popover { position:fixed; top:72px; right:12px; left:12px; width:auto; max-height:calc(100dvh - 88px); }
 }
 
 /* Forms are true focus layers: no dashboard controls float above them. */
