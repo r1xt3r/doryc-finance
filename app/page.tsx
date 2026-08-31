@@ -238,11 +238,12 @@ export default function Home() {
     const paymentsTotal = payments.reduce((sum, payment) => sum + payment.amount, 0);
     const used = Math.max(0, card.openingUsed + purchasesTotal - paymentsTotal);
     const currentStatementDueDate = nextMonthlyDate(card.paymentDay, today);
+    const remainingStatement = Math.max(0, card.currentStatement - payments.reduce((sum, payment) => sum + payment.amount, 0));
     const purchasesWithDueDate = purchases.map((purchase) => ({ ...purchase, dueDate: cardPurchaseDueDate(purchase.date, card.statementDay, card.paymentDay) }));
-    const candidateDueDates = [...(card.currentStatement > 0 ? [currentStatementDueDate] : []), ...purchasesWithDueDate.map((purchase) => purchase.dueDate)].filter((date) => date >= today).sort();
+    const candidateDueDates = [...(remainingStatement > 0 ? [currentStatementDueDate] : []), ...purchasesWithDueDate.map((purchase) => purchase.dueDate)].filter((date) => date >= today).sort();
     const nextPaymentDate = candidateDueDates[0] || currentStatementDueDate;
     const purchasesInNextPayment = purchasesWithDueDate.filter((purchase) => purchase.dueDate === nextPaymentDate);
-    const estimatedPayment = estimateCardPayment(nextPaymentDate === currentStatementDueDate ? card.currentStatement : 0, card.annualRate, purchasesInNextPayment);
+    const estimatedPayment = estimateCardPayment(nextPaymentDate === currentStatementDueDate ? remainingStatement : 0, card.annualRate, purchasesInNextPayment);
     return { card, purchases: purchasesWithDueDate, payments, used, available: Math.max(card.creditLimit - used, 0), estimatedPayment, nextPaymentDate };
   });
   const fundingPayments = [
