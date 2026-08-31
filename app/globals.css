@@ -412,6 +412,8 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 
 .topbar-actions { display:flex; align-items:center; gap:10px; position:relative; z-index:121; }
 .topbar { position:relative; z-index:120; }
+.purchase-actions button { font-size:0; width:30px; min-width:30px; height:30px; padding:0; display:inline-grid; place-items:center; }
+.purchase-actions button::before { content:'♜'; font-size:14px; line-height:1; }
 .language-selector { display:inline-flex; align-items:center; gap:2px; padding:3px; border:1px solid var(--line); border-radius:12px; background:#111612; }
 .language-selector button { min-width:34px; padding:7px 8px; border:0; border-radius:8px; background:transparent; color:var(--muted); font-size:10px; font-weight:850; letter-spacing:.07em; }
 .language-selector button.active { background:var(--mint); color:#101510; box-shadow:0 4px 14px rgba(189,244,119,.14); }
