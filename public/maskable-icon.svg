@@ -1,7 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs><linearGradient id="midnight-mask" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse"><stop stop-color="#dcffb2"/><stop offset=".52" stop-color="#80baff"/><stop offset="1" stop-color="#78ae47"/></linearGradient></defs>
-  <rect width="512" height="512" fill="#101722"/>
-  <rect x="40" y="40" width="432" height="432" rx="120" fill="url(#midnight-mask)"/>
+  <rect width="512" height="512" fill="url(#midnight-mask)"/>
   <path d="M176 120h104c80 0 136 48 136 136s-56 136-136 136H176V120Zm72 72v128h32c40 0 64-24 64-64s-24-64-64-64h-32Z" fill="#101722"/>
   <path d="m96 320 56-56 40 40 80-88m-40 0h40v40" fill="none" stroke="#f7ffe9" stroke-width="30" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
