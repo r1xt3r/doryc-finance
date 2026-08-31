@@ -444,7 +444,7 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 .experience-trigger svg { display:block; }
 .experience-popover { width:286px; padding:18px; }
 .experience-popover-portal { position:fixed; z-index:360; right:auto; pointer-events:auto; }
-.notification-popover-portal { position:fixed; z-index:360; top:82px; right:76px; max-height:calc(100dvh - 98px); overflow:auto; }
+.notification-popover-portal { position:fixed; z-index:360; right:auto; max-height:calc(100dvh - 98px); overflow:auto; }
 .experience-group { margin-top:16px; }
 .experience-group>span { display:block; margin-bottom:7px; color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
 .theme-options { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
@@ -457,9 +457,7 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 .motion-options button { display:grid; gap:3px; min-width:0; padding:10px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--ink); text-align:left; cursor:pointer; }
 .motion-options b { font-size:9px; }.motion-options small { color:var(--muted); font-size:7px; line-height:1.35; }
 .experience-saved { display:flex; align-items:center; gap:6px; margin:14px 0 0; color:var(--muted); font-size:7px; }.experience-saved i { width:6px; height:6px; border-radius:50%; background:var(--mint); box-shadow:0 0 8px color-mix(in srgb,var(--mint) 55%,transparent); }
-html[data-theme="midnight"] .dashboard,html[data-theme="midnight"] .auth-shell { background:radial-gradient(circle at 80% 0,rgba(128,186,255,.08),transparent 28%),#090d13; }
 html[data-theme="midnight"] .overview-links button,html[data-theme="midnight"] .quick-actions button,html[data-theme="midnight"] .card-cash-flow,html[data-theme="midnight"] .experience-popover,html[data-theme="midnight"] .notification-popover { background:#0d1520; }
-html[data-theme="warm"] .dashboard,html[data-theme="warm"] .auth-shell { background:radial-gradient(circle at 80% 0,rgba(244,196,119,.09),transparent 28%),#17130f; }
 html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-actions button,html[data-theme="warm"] .card-cash-flow,html[data-theme="warm"] .experience-popover,html[data-theme="warm"] .notification-popover { background:#1c1712; }
 
 /* A calmer, clearer sign-in experience */
