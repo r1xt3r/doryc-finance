@@ -435,3 +435,37 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 .auth-language { position:absolute; z-index:5; top:22px; right:24px; }
 .field-help { display:block; margin-top:1px; color:var(--muted); font-size:10px; line-height:1.45; }
 @media (max-width:520px) { .topbar-actions { gap:6px; }.language-selector button { min-width:29px; padding:6px 5px; }.auth-language { top:14px; right:14px; } }
+
+/* Credit and loans share one visual rhythm. */
+.cards-panel,.bank-loans-panel { margin:24px 0; padding:26px!important; }
+.cards-panel .section-heading,.bank-loans-panel .section-heading { margin-bottom:18px; }
+.credit-card-grid,.bank-loan-grid { gap:16px; }
+.credit-card:only-child,.bank-loan-grid article:only-child { width:100%; padding:26px 28px; border-radius:20px; }
+.credit-card-footer,.bank-loan-top { min-height:38px; }
+.credit-card-footer>span { align-items:center; }
+.credit-card-footer button,.bank-loan-top .icon-action,.purchase-actions button { min-height:38px; border-radius:10px!important; }
+.credit-card-footer .icon-action,.bank-loan-top .danger-mini.icon-action,.purchase-actions button { width:38px!important; min-width:38px!important; height:38px!important; padding:0!important; }
+.credit-card-footer .icon-action svg,.bank-loan-top .icon-action svg { width:13px; height:13px; }
+.card-cash-flow { margin-top:16px; padding:24px 28px; border-radius:20px; background:linear-gradient(135deg,#111813,#152018); }
+.card-cash-flow>div:first-child { display:flex; align-items:end; justify-content:space-between; gap:20px; padding-bottom:15px; border-bottom:1px solid var(--line); }
+.card-cash-flow h3 { margin-top:4px; font-size:18px; }
+.card-flow-stats { gap:12px; margin-top:16px; }
+.card-flow-stats span { min-height:78px; align-content:center; padding:15px 16px; border:1px solid #2d392f; background:rgba(24,33,26,.82); }
+.card-flow-stats strong { font-size:17px; }
+.card-purchase-list { margin-top:16px; border-top:0; }
+.card-purchase-list>div { min-height:62px; padding:12px 4px; }
+.purchase-actions { min-width:132px; justify-content:flex-end; }
+.bank-loan-grid article { padding:26px 28px; border-radius:20px; }
+.bank-loan-values { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:24px; }
+.bank-loan-values span:nth-child(2) { justify-self:center; }
+.bank-loan-values span:last-child { justify-self:end; text-align:right; }
+.bank-loan-meta { min-height:20px; }
+@media (max-width:700px) {
+  .cards-panel,.bank-loans-panel { padding:18px 14px!important; }
+  .credit-card:only-child,.bank-loan-grid article:only-child,.card-cash-flow,.bank-loan-grid article { padding:20px 16px; }
+  .credit-card-footer { align-items:flex-start; flex-direction:column; }
+  .credit-card-footer small { max-width:100%!important; }
+  .credit-card-footer>span { width:100%; flex-wrap:wrap; }
+  .card-flow-stats,.bank-loan-values { grid-template-columns:1fr; }
+  .bank-loan-values span:nth-child(2),.bank-loan-values span:last-child { justify-self:start; text-align:left; }
+}
