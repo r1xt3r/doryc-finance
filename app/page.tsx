@@ -1,12 +1,13 @@
 'use client';
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { animate, stagger } from 'animejs';
 import { createClient } from '../lib/supabase/client';
 import LogoMark from './components/LogoMark';
 import DashboardSidebar, { type DashboardView } from './components/DashboardSidebar';
 import LanguageSelector from './components/LanguageSelector';
 import ExperienceSettings from './components/ExperienceSettings';
+import OnboardingTour from './components/OnboardingTour';
 import ConfirmDialog from './components/ConfirmDialog';
 import { addMonthsClamped, cardPurchaseDueDate, estimateCardPayment, nextMonthlyDate } from '../lib/finance';
 import { useLanguage } from '../lib/useLanguage';
@@ -67,7 +68,7 @@ async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = 
     createClient().auth.getSession().then((result: { data: { session: { access_token: string } | null } }) => finish(result.data.session?.access_token || null)).catch(() => finish(null));
   });
   const headers = new Headers(init.headers);
-  const accessToken = sessionToken || window.sessionStorage.getItem('doryc_access_token') || window.sessionStorage.getItem('moro_access_token');
+  const accessToken = sessionToken || window.sessionStorage.getItem('doryc_access_token');
   if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
   const controller = init.signal ? null : new AbortController();
   const timeout = controller ? window.setTimeout(() => controller.abort(), 20_000) : null;
@@ -75,7 +76,6 @@ async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = 
     const response = await fetch(input, { ...init, headers, signal: init.signal || controller?.signal });
     if (response.status === 401) {
       window.sessionStorage.removeItem('doryc_access_token');
-      window.sessionStorage.removeItem('moro_access_token');
     }
     return response;
   } finally {
@@ -107,6 +107,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [showAllActivity, setShowAllActivity] = useState(false);
+  const [showBalanceDetail, setShowBalanceDetail] = useState(false);
   const [showFundingPlan, setShowFundingPlan] = useState(false);
   const [expandedFundingAccount, setExpandedFundingAccount] = useState<string | null>(null);
   const [expandedLoanId, setExpandedLoanId] = useState<string | null>(null);
@@ -118,6 +119,7 @@ export default function Home() {
   const [cardModal, setCardModal] = useState<'account' | 'card' | 'purchase' | 'statement' | 'loan' | 'cardPayment' | 'loanPayment' | 'loanIncrease' | 'bankLoan' | null>(null);
   const [selectedCardId, setSelectedCardId] = useState('');
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showTour, setShowTour] = useState(false);
   const [openUtility, setOpenUtility] = useState<'notifications' | 'settings' | null>(null);
 
   useEffect(() => {
@@ -147,7 +149,7 @@ export default function Home() {
         if (!response.ok) throw new Error(payload.error || 'Unable to load data.');
         return payload;
       })
-      .then((payload) => { if (payload) { setData(payload); setShowOnboarding(!payload.onboardingCompleted && window.localStorage.getItem('doryc_setup_dismissed') !== 'true'); } })
+      .then((payload) => { if (payload) { const needsSetup = !payload.onboardingCompleted; setData(payload); setShowTour(needsSetup && window.localStorage.getItem('doryc_tour_seen') !== 'true'); setShowOnboarding(needsSetup && window.localStorage.getItem('doryc_tour_seen') === 'true' && window.localStorage.getItem('doryc_setup_dismissed') !== 'true'); } })
       .catch(() => setError('We could not connect to your financial data. Check your connection and try again.'))
       .finally(() => setLoading(false));
   }, [loadAttempt]);
@@ -160,14 +162,12 @@ export default function Home() {
     if (!heading || !sidebar || !brandMark) return;
     const animations = [
       animate(sidebar, { opacity: [0, 1], x: [-22, 0], duration: 720, ease: 'outExpo' }),
-      animate(root.current.querySelectorAll('.topbar,.quick-actions'), { opacity: [0, 1], duration: 180, ease: 'linear' }),
+      animate(root.current.querySelectorAll('.topbar'), { opacity: [0, 1], duration: 180, ease: 'linear' }),
       animate(root.current.querySelectorAll('.topbar .eyebrow,.topbar .icon-button'), { opacity: [0, 1], y: [-10, 0], delay: stagger(90), duration: 520, ease: 'outCubic' }),
       animate(heading, { opacity: [0, 1], y: [22, 0], scale: [.97, 1], duration: 760, ease: 'outExpo' }),
       animate(heading.querySelectorAll('.greeting-word'), { opacity: [0, 1], y: [18, 0], rotate: [-2, 0], delay: stagger(130, { start: 90 }), duration: 820, ease: 'outElastic(1, .65)' }),
       animate(heading.querySelectorAll('.greeting-name'), { color: [{ to: '#ffffff' }, { to: '#bdf477' }, { to: '#ffffff' }], textShadow: [{ to: '0 0 0 rgba(189,244,119,0)' }, { to: '0 0 18px rgba(189,244,119,.34)' }, { to: '0 0 0 rgba(189,244,119,0)' }], duration: 2800, loop: true, loopDelay: 1400, ease: 'inOutSine' }),
       animate(root.current.querySelectorAll('.hero-grid article'), { opacity: [0, 1], y: [28, 0], scale: [.97, 1], delay: stagger(120, { start: 180 }), duration: 760, ease: 'outExpo' }),
-      animate(root.current.querySelectorAll('.quick-actions button'), { opacity: [0, 1], y: [20, 0], delay: stagger(70, { start: 360 }), duration: 620, ease: 'outExpo' }),
-      animate(brandMark, { scale: [{ to: 1.07, duration: 480 }, { to: 1, duration: 720 }], loop: true, loopDelay: 2600, ease: 'inOut(3)' }),
       animate(heading, { filter: [{ to: 'drop-shadow(0 0 0 rgba(189,244,119,0))' }, { to: 'drop-shadow(0 4px 13px rgba(189,244,119,.22))' }, { to: 'drop-shadow(0 0 0 rgba(189,244,119,0))' }], duration: 2600, loop: true, loopDelay: 1200, ease: 'inOutSine' }),
     ];
     return () => {
@@ -326,17 +326,18 @@ export default function Home() {
   const currentDateLabel = new Intl.DateTimeFormat(language === 'es' ? 'es-EC' : 'en-US', { timeZone: 'America/Guayaquil', weekday: 'long', month: 'short', day: 'numeric' }).format(currentTime).toUpperCase();
   const configuredCard = data.creditCards.find((card) => card.payFromAccountId && card.statementDay && card.paymentDay);
   const setupMissions = [
-    { title: 'Bank accounts', detail: 'Add the accounts you use and their real balances.', done: data.accounts.length > 0, action: () => setCardModal('account') },
-    { title: 'Savings space', detail: 'Create your dedicated Produbanco Savings account.', done: savingsAccounts.length > 0, action: () => setCardModal('account') },
-    { title: 'Credit card', detail: 'Add its limit, used credit and current statement.', done: data.creditCards.length > 0, action: () => setCardModal(data.creditCards.length ? 'statement' : 'card') },
-    { title: 'Billing dates', detail: 'Choose the statement day, payment day and paying account.', done: Boolean(configuredCard), action: () => { if (data.creditCards[0]) setSelectedCardId(data.creditCards[0].id); setCardModal(data.creditCards.length ? 'statement' : 'card'); } },
-    { title: 'Monthly payments', detail: 'Register at least one recurring commitment.', done: data.recurring.length > 0, action: () => setActiveAction('Recurring') },
+    { title: tr('Bank accounts', 'Cuentas bancarias'), detail: tr('Add the accounts you use and their real balances.', 'Agrega las cuentas que usas y sus saldos reales.'), done: data.accounts.length > 0, action: () => setCardModal('account') },
+    { title: tr('Savings space', 'Espacio de ahorro'), detail: tr('Create at least one savings account.', 'Crea al menos una cuenta de ahorros.'), done: savingsAccounts.length > 0, action: () => setCardModal('account') },
+    { title: tr('Expected income', 'Ingreso esperado'), detail: tr('Schedule your salary or regular monthly income.', 'Programa tu sueldo o ingreso mensual habitual.'), done: expectedIncome.length > 0, action: () => { setRecurringFlow('income'); setActiveAction('Recurring'); } },
+    { title: tr('Monthly payments', 'Pagos mensuales'), detail: tr('Register at least one recurring commitment.', 'Registra al menos un compromiso recurrente.'), done: recurringExpenses.length > 0, action: () => { setRecurringFlow('expense'); setActiveAction('Recurring'); } },
+    { title: tr('Credit or debt', 'Crédito o deuda'), detail: tr('Add a card or loan if you currently use one.', 'Agrega una tarjeta o préstamo si actualmente utilizas uno.'), done: data.creditCards.length > 0 || data.bankLoans.length > 0, action: () => setCardModal('card') },
+    { title: tr('Billing dates', 'Fechas de facturación'), detail: tr('Choose statement day, payment day and paying account.', 'Elige día de corte, día de pago y cuenta de origen.'), done: data.creditCards.length === 0 || Boolean(configuredCard), action: () => { if (data.creditCards[0]) setSelectedCardId(data.creditCards[0].id); setCardModal(data.creditCards.length ? 'statement' : 'card'); } },
   ];
   const completedMissions = setupMissions.filter((mission) => mission.done).length;
   const viewTitles: Record<DashboardView, string> = language === 'es'
     ? { overview: 'Resumen', accounts: 'Cuentas y ahorros', payments: 'Pagos', credit: 'Crédito y préstamos', people: 'Dinero entre personas', activity: 'Flujo de caja' }
     : { overview: 'Overview', accounts: 'Accounts & savings', payments: 'Payments', credit: 'Credit & loans', people: 'Money between people', activity: 'Cash flow' };
-  const navigateTo = (view: DashboardView) => { setActiveView(view); window.history.pushState(null, '', `#${view}`); window.scrollTo({ top: 0, behavior: 'smooth' }); };
+  const navigateTo = useCallback((view: DashboardView) => { setActiveView(view); window.history.pushState(null, '', `#${view}`); window.scrollTo({ top: 0, behavior: 'smooth' }); }, []);
 
   const celebrateMoneyIn = () => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -413,7 +414,6 @@ export default function Home() {
   async function signOut() {
     await createClient().auth.signOut();
     window.sessionStorage.removeItem('doryc_access_token');
-    window.sessionStorage.removeItem('moro_access_token');
     window.location.assign('/login');
   }
 
@@ -532,7 +532,35 @@ export default function Home() {
     else setError(result.error || 'Unable to remove this entry.');
   }
 
+  function dismissOnboarding() {
+    window.localStorage.setItem('doryc_setup_dismissed', 'true');
+    setShowOnboarding(false);
+  }
+
+  function startTour() {
+    window.localStorage.removeItem('doryc_setup_dismissed');
+    setOpenUtility(null);
+    setShowOnboarding(false);
+    setShowTour(true);
+  }
+
+  function finishTour() {
+    window.localStorage.setItem('doryc_tour_seen', 'true');
+    window.localStorage.removeItem('doryc_setup_dismissed');
+    setShowTour(false);
+    navigateTo('overview');
+    setShowOnboarding(!data.onboardingCompleted);
+  }
+
+  function skipTour() {
+    window.localStorage.setItem('doryc_tour_seen', 'true');
+    setShowTour(false);
+    navigateTo('overview');
+    setShowOnboarding(!data.onboardingCompleted);
+  }
+
   async function completeOnboarding() {
+    if (completedMissions !== setupMissions.length) { dismissOnboarding(); return; }
     window.localStorage.setItem('doryc_setup_dismissed', 'true');
     setShowOnboarding(false);
     try {
@@ -593,28 +621,32 @@ export default function Home() {
 
   return (
     <main ref={root} className={`app-shell ${loading ? 'app-is-loading' : ''}`}>
+      {showTour && <OnboardingTour language={language} onNavigate={navigateTo} onClose={skipTour} onFinish={finishTour} />}
       {loading && <section className="app-loading-screen" role="status" aria-live="polite"><LogoMark /><div><p className="eyebrow">DORYC</p><h1>{tr('Bringing your finances together', 'Organizando tus finanzas')}</h1><small>{tr('Connecting securely to your financial home…', 'Conectando de forma segura con tu espacio financiero…')}</small></div><div className="app-loading-progress" aria-hidden="true"><i /></div></section>}
       <DashboardSidebar activeView={activeView} name={data.name} paymentCount={fundingPayments.length} language={language} onNavigate={navigateTo} />
 
       <section className={`dashboard ${loading ? 'is-loading' : ''}`} id="top" aria-busy={loading}>
         <header className="topbar" data-reveal>
           <div><p className="eyebrow">{activeView === 'overview' ? currentDateLabel : 'DORYC'}</p><h1>{activeView === 'overview' ? <><span className="greeting-word">{greeting},</span>{' '}<span className="greeting-word greeting-name">{data.name}.</span></> : viewTitles[activeView]}</h1></div>
-          <div className="topbar-actions"><NotificationCenter items={notifications} language={language} onNavigate={navigateTo} open={openUtility === 'notifications'} onToggle={() => setOpenUtility((v) => v === 'notifications' ? null : 'notifications')} onClose={() => setOpenUtility(null)} /><ExperienceSettings value={preferences} language={language} onChange={setPreferences} open={openUtility === 'settings'} onToggle={() => setOpenUtility((v) => v === 'settings' ? null : 'settings')} /><LanguageSelector language={language} onChange={setLanguage} /><button className="icon-button" type="button" onClick={signOut} aria-label={tr('Sign out', 'Cerrar sesión')} title={tr('Sign out', 'Cerrar sesión')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4m4-4H9"/></svg><span className="button-tooltip">{tr('Sign out', 'Cerrar sesión')}</span></button></div>
+          <div className="topbar-actions"><NotificationCenter items={notifications} language={language} onNavigate={navigateTo} open={openUtility === 'notifications'} onToggle={() => setOpenUtility((v) => v === 'notifications' ? null : 'notifications')} onClose={() => setOpenUtility(null)} /><ExperienceSettings value={preferences} language={language} onChange={setPreferences} open={openUtility === 'settings'} onToggle={() => setOpenUtility((v) => v === 'settings' ? null : 'settings')} onStartTour={startTour} /><LanguageSelector language={language} onChange={setLanguage} /><button className="icon-button" type="button" onClick={signOut} aria-label={tr('Sign out', 'Cerrar sesión')} title={tr('Sign out', 'Cerrar sesión')}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4m4-4H9"/></svg><span className="button-tooltip">{tr('Sign out', 'Cerrar sesión')}</span></button></div>
         </header>
         {error && !activeAction && <div className="page-error" role="alert"><span><strong>{tr('Connection interrupted', 'Conexión interrumpida')}</strong><small>{error}</small></span><button type="button" onClick={() => { setLoading(true); setError(''); setLoadAttempt((attempt) => attempt + 1); }}>{tr('Try again', 'Reintentar')}</button></div>}
 
         {showOnboarding && activeView === 'overview' && <section className="onboarding-panel">
-          <button type="button" aria-label="Dismiss setup guide" onClick={completeOnboarding}>×</button>
-          <div><p className="eyebrow">DORYC SETUP MISSIONS</p><h2>Set up your financial home</h2><p>Complete each mission once. Doryc detects what is already configured.</p><div className="onboarding-progress"><span><i style={{ width: `${completedMissions / setupMissions.length * 100}%` }} /></span><strong>{completedMissions} of {setupMissions.length} complete</strong></div></div>
-          <div className="onboarding-steps">{setupMissions.map((mission, index) => <button type="button" className={mission.done ? 'completed' : ''} key={mission.title} onClick={mission.action}><i>{mission.done ? '✓' : index + 1}</i><strong>{mission.title}</strong><small>{mission.done ? 'Completed' : mission.detail}</small><b>{mission.done ? 'Done' : 'Open →'}</b></button>)}</div>
-          <div className="onboarding-actions"><small>{completedMissions === setupMissions.length ? 'Everything is ready.' : 'You can close this guide and continue later.'}</small><button className="onboarding-action" type="button" onClick={completeOnboarding}>{completedMissions === setupMissions.length ? 'Finish setup ✓' : 'Close for now'}</button></div>
+          <button type="button" aria-label={tr('Dismiss setup guide', 'Cerrar guía por ahora')} onClick={dismissOnboarding}>×</button>
+          <div><p className="eyebrow">{tr('DORYC SETUP MISSIONS', 'MISIONES INICIALES')}</p><h2>{tr('Set up your financial home', 'Prepara tu espacio financiero')}</h2><p>{tr('Complete each mission once. Doryc detects what is already configured.', 'Completa cada misión una vez. Doryc detecta lo que ya configuraste.')}</p><div className="onboarding-progress"><span><i style={{ width: `${completedMissions / setupMissions.length * 100}%` }} /></span><strong>{completedMissions} {tr(`of ${setupMissions.length} complete`, `de ${setupMissions.length} completas`)}</strong></div></div>
+          <div className="onboarding-steps">{setupMissions.map((mission, index) => <button type="button" className={mission.done ? 'completed' : ''} key={mission.title} onClick={mission.action}><i>{mission.done ? '✓' : index + 1}</i><strong>{mission.title}</strong><small>{mission.done ? tr('Completed', 'Completada') : mission.detail}</small><b>{mission.done ? tr('Done', 'Lista') : tr('Open →', 'Abrir →')}</b></button>)}</div>
+          <div className="onboarding-actions"><small>{completedMissions === setupMissions.length ? tr('Everything is ready.', 'Todo está listo.') : tr('Close this guide and continue later without losing progress.', 'Puedes cerrar la guía y continuar después sin perder el avance.')}</small><button className="onboarding-action" type="button" onClick={completeOnboarding}>{completedMissions === setupMissions.length ? tr('Finish setup ✓', 'Finalizar ✓') : tr('Close for now', 'Cerrar por ahora')}</button></div>
         </section>}
 
         <section className="hero-grid" id="overview" hidden={activeView !== 'overview'}>
           <article className="balance-card" data-reveal>
-            <div className="card-kicker"><span>{tr('Available balance', 'Saldo disponible')}</span><span className="live-dot">{tr('Live', 'En vivo')}</span></div>
-            <strong className="balance">{money(totalBalance)}</strong><p>Across {availableAccounts.length} available accounts</p>
-            <div className="balance-footer"><span><small>Income this month</small><strong>+{money(data.income)}</strong></span><span><small>Spent this month</small><strong>−{money(data.spent)}</strong></span></div>
+            <button className="balance-card-trigger" type="button" onClick={() => setShowBalanceDetail(true)} aria-haspopup="dialog">
+              <div className="card-kicker"><span>{tr('Available balance', 'Saldo disponible')}</span><span className="live-dot">{tr('Live', 'En vivo')}</span></div>
+              <strong className="balance">{money(totalBalance)}</strong><p>{tr(`Across ${availableAccounts.length} available accounts`, `En ${availableAccounts.length} cuentas disponibles`)}</p>
+              <div className="balance-footer"><span><small>{tr('Income this month', 'Ingresos este mes')}</small><strong>+{money(data.income)}</strong></span><span><small>{tr('Spent this month', 'Gastado este mes')}</small><strong>−{money(data.spent)}</strong></span></div>
+              <small className="balance-detail-hint">{tr('View account breakdown', 'Ver detalle por cuentas')} <b>→</b></small>
+            </button>
           </article>
           <article className="funding-card" data-reveal>
             <div className="card-kicker"><span>{tr('Funding needed', 'Fondos necesarios')}</span><span>{fundingMonth}</span></div>
@@ -624,6 +656,18 @@ export default function Home() {
             <button className="funding-plan-button" type="button" onClick={() => setShowFundingPlan(true)}>View account plan <span>→</span></button>
           </article>
         </section>
+
+        {showBalanceDetail && <div className="modal-backdrop balance-detail-backdrop" role="presentation" onMouseDown={() => setShowBalanceDetail(false)}>
+          <section className="modal balance-detail-modal" role="dialog" aria-modal="true" aria-labelledby="balance-detail-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-heading"><div><p className="eyebrow">{tr('AVAILABLE MONEY', 'DINERO DISPONIBLE')}</p><h2 id="balance-detail-title">{tr('Balance by account', 'Saldo por cuenta')}</h2></div><button type="button" onClick={() => setShowBalanceDetail(false)} aria-label={tr('Close', 'Cerrar')}>×</button></div>
+            <div className="balance-detail-total"><span><small>{tr('Total available', 'Total disponible')}</small><strong>{money(totalBalance)}</strong></span><small>{tr(`${availableAccounts.length} accounts included`, `${availableAccounts.length} cuentas incluidas`)}</small></div>
+            <div className="balance-account-list">{availableAccounts.map((account) => {
+              const share = totalBalance > 0 ? Math.max(0, account.balance) / totalBalance * 100 : 0;
+              return <article key={account.id}><span className="balance-account-icon">{account.bank.slice(0, 1).toUpperCase()}</span><span><strong>{account.name}</strong><small>{account.bank} · {account.accountType}</small><i><b style={{ width: `${Math.min(100, share)}%` }} /></i></span><span><strong>{money(account.balance)}</strong><small>{totalBalance > 0 ? `${share.toFixed(0)}%` : '—'}</small></span></article>;
+            })}{availableAccounts.length === 0 && <div className="balance-detail-empty"><strong>{tr('No available accounts yet', 'Aún no hay cuentas disponibles')}</strong><small>{tr('Add your first account to start calculating your balance.', 'Agrega tu primera cuenta para comenzar a calcular el saldo.')}</small></div>}</div>
+            <button className="balance-detail-action" type="button" onClick={() => { setShowBalanceDetail(false); navigateTo('accounts'); }}>{tr('Manage accounts', 'Administrar cuentas')} <span>→</span></button>
+          </section>
+        </div>}
 
         <section className="overview-links" hidden={activeView !== 'overview'} aria-label="Financial areas">
           <button type="button" onClick={() => navigateTo('accounts')}><span>▥</span><small>Accounts & savings</small><strong>{money(totalBalance + savingsTotal)}</strong><i>→</i></button>

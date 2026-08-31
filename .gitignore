@@ -4,5 +4,6 @@
 /tmp
 /.env*
 !.env.example
+/supabase/.temp/
 *.log
 .DS_Store
