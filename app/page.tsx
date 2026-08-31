@@ -90,6 +90,7 @@ export default function Home() {
   const [activeAction, setActiveAction] = useState<ActionType | null>(null);
   const [toast, setToast] = useState('');
   const [celebrationKey, setCelebrationKey] = useState(0);
+  const [celebrationKind, setCelebrationKind] = useState<'income' | 'expense'>('income');
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -321,6 +322,10 @@ export default function Home() {
     setCelebrationKey((key) => key + 1);
     window.setTimeout(() => setCelebrationKey(0), 2900);
   };
+  const celebrateMoneyOut = () => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    setCelebrationKind('expense'); setCelebrationKey((key) => key + 1); window.setTimeout(() => setCelebrationKey(0), 2900);
+  };
 
   useEffect(() => {
     if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -411,6 +416,7 @@ export default function Home() {
       setEditingRecurring(null);
       setToast(editingTransaction ? 'Movement updated' : editingRecurring ? 'Recurring payment updated' : `${activeAction} saved`);
       if (!editingTransaction && activeAction === 'Income') celebrateMoneyIn();
+      if (!editingTransaction && activeAction === 'Expense') celebrateMoneyOut();
       window.setTimeout(() => setToast(''), 2400);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to save.');
