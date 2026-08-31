@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cardPurchaseDueDate, estimateCardPayment, nextMonthlyDate } from '../lib/finance.ts';
+import { addMonthsClamped, cardPurchaseDueDate, estimateCardPayment, nextMonthlyDate } from '../lib/finance.ts';
 
 test('moves a payment day that already passed into the next month', () => {
   assert.equal(nextMonthlyDate(2, '2026-08-30'), '2026-09-02');
@@ -8,6 +8,15 @@ test('moves a payment day that already passed into the next month', () => {
 
 test('keeps an upcoming payment day in the current month', () => {
   assert.equal(nextMonthlyDate(31, '2026-08-30'), '2026-08-31');
+});
+
+test('keeps a payment due today in the current cycle', () => {
+  assert.equal(nextMonthlyDate(2, '2026-09-02'), '2026-09-02');
+});
+
+test('advances month-end dates without skipping a short month', () => {
+  assert.equal(addMonthsClamped('2026-01-31'), '2026-02-28');
+  assert.equal(addMonthsClamped('2028-01-31'), '2028-02-29');
 });
 
 test('clamps payment dates to the last valid day of a short month', () => {

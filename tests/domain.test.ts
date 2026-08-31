@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { monthEnd, nextMonthEnd, previousMonthEnd, salaryPaymentWindow } from '../modules/recurring-payments/domain/salarySchedule.ts';
 import { calculateFinancialHealth } from '../modules/insights/domain/financialHealth.ts';
+import { calculateAccountBalances } from '../modules/accounts/domain/calculateAccountBalances.ts';
 
 test('salary stays anchored to the real end of each month', () => {
   assert.equal(monthEnd('2026-02-10'), '2026-02-28');
@@ -20,4 +21,9 @@ test('financial health is explainable and bounded', () => {
   assert.ok(health.score >= 85 && health.score <= 100);
   assert.equal(health.label, 'Excellent');
   assert.equal(health.factors.length, 4);
+});
+
+test('a card payment expense affects its account exactly once', () => {
+  const balances = calculateAccountBalances([{ id: 'checking', starting_balance_cents: 10000 }], [{ type: 'expense', amount_cents: 2500, from_account_id: 'checking', to_account_id: null }], [], []);
+  assert.equal(balances.get('checking'), 7500);
 });

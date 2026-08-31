@@ -5,10 +5,18 @@ export type InstallmentPurchase = {
   withInterest: boolean;
 };
 
+export function addMonthsClamped(value: string, months = 1) {
+  const date = new Date(`${value}T12:00:00Z`);
+  const targetMonth = date.getUTCMonth() + months;
+  const lastDay = new Date(Date.UTC(date.getUTCFullYear(), targetMonth + 1, 0, 12)).getUTCDate();
+  const result = new Date(Date.UTC(date.getUTCFullYear(), targetMonth, Math.min(date.getUTCDate(), lastDay), 12));
+  return result.toISOString().slice(0, 10);
+}
+
 export function nextMonthlyDate(day: number | null, today: string) {
   if (!day) return today;
   const current = new Date(`${today}T12:00:00`);
-  const targetMonth = current.getMonth() + (day <= current.getDate() ? 1 : 0);
+  const targetMonth = current.getMonth() + (day < current.getDate() ? 1 : 0);
   const lastDay = new Date(current.getFullYear(), targetMonth + 1, 0).getDate();
   const result = new Date(current.getFullYear(), targetMonth, Math.min(day, lastDay), 12);
   return `${result.getFullYear()}-${String(result.getMonth() + 1).padStart(2, '0')}-${String(result.getDate()).padStart(2, '0')}`;

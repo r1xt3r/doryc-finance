@@ -8,7 +8,7 @@ import DashboardSidebar, { type DashboardView } from './components/DashboardSide
 import LanguageSelector from './components/LanguageSelector';
 import ExperienceSettings from './components/ExperienceSettings';
 import ConfirmDialog from './components/ConfirmDialog';
-import { cardPurchaseDueDate, estimateCardPayment, nextMonthlyDate } from '../lib/finance';
+import { addMonthsClamped, cardPurchaseDueDate, estimateCardPayment, nextMonthlyDate } from '../lib/finance';
 import { useLanguage } from '../lib/useLanguage';
 import { useExperiencePreferences } from '../lib/useExperiencePreferences';
 import { useConfirmDialog } from '../lib/useConfirmDialog';
@@ -231,28 +231,32 @@ export default function Home() {
   const accountMap = useMemo(() => new Map(data.accounts.map((account) => [account.id, account.name])), [data.accounts]);
   const pichinchaCheckingId = data.accounts.find((account) => account.bank === 'Pichincha' && account.accountType.toLowerCase() === 'checking')?.id || '';
   const bankLoanAccountId = (loan: BankLoan) => loan.bank === 'Pichincha' && pichinchaCheckingId ? pichinchaCheckingId : loan.payFromAccountId;
-  const cardSummaries = data.creditCards.map((card) => {
-    const purchases = data.cardPurchases.filter((purchase) => purchase.creditCardId === card.id);
-    const payments = (data.cardPayments || []).filter((payment) => payment.creditCardId === card.id);
+  const purchasesByCard = useMemo(() => { const grouped = new Map<string, CardPurchase[]>(); for (const purchase of data.cardPurchases) { const group = grouped.get(purchase.creditCardId); if (group) group.push(purchase); else grouped.set(purchase.creditCardId, [purchase]); } return grouped; }, [data.cardPurchases]);
+  const paymentsByCard = useMemo(() => { const grouped = new Map<string, CardPayment[]>(); for (const payment of data.cardPayments || []) { const group = grouped.get(payment.creditCardId); if (group) group.push(payment); else grouped.set(payment.creditCardId, [payment]); } return grouped; }, [data.cardPayments]);
+  const cardSummaries = useMemo(() => data.creditCards.map((card) => {
+    const purchases = purchasesByCard.get(card.id) || [];
+    const payments = paymentsByCard.get(card.id) || [];
     const purchasesTotal = purchases.reduce((sum, purchase) => sum + purchase.amount, 0);
     const paymentsTotal = payments.reduce((sum, payment) => sum + payment.amount, 0);
     const used = Math.max(0, card.openingUsed + purchasesTotal - paymentsTotal);
     const currentStatementDueDate = nextMonthlyDate(card.paymentDay, today);
-    const remainingStatement = Math.max(0, card.currentStatement - payments.reduce((sum, payment) => sum + payment.amount, 0));
-    const purchasesWithDueDate = purchases.map((purchase) => ({ ...purchase, dueDate: cardPurchaseDueDate(purchase.date, card.statementDay, card.paymentDay) }));
+    const remainingStatement = Math.max(0, card.currentStatement);
+    const purchasesWithDueDate = purchases.map((purchase) => ({ ...purchase, dueDate: addMonthsClamped(cardPurchaseDueDate(purchase.date, card.statementDay, card.paymentDay), purchase.installmentMonths > 1 ? purchase.installmentsPaid || 0 : 0) }));
     const candidateDueDates = [...(remainingStatement > 0 ? [currentStatementDueDate] : []), ...purchasesWithDueDate.map((purchase) => purchase.dueDate)].filter((date) => date >= today).sort();
     const nextPaymentDate = candidateDueDates[0] || currentStatementDueDate;
     const purchasesInNextPayment = purchasesWithDueDate.filter((purchase) => purchase.dueDate === nextPaymentDate);
     const estimatedPayment = estimateCardPayment(nextPaymentDate === currentStatementDueDate ? remainingStatement : 0, card.annualRate, purchasesInNextPayment);
     return { card, purchases: purchasesWithDueDate, payments, used, available: Math.max(card.creditLimit - used, 0), estimatedPayment, nextPaymentDate };
-  });
+  }), [data.creditCards, paymentsByCard, purchasesByCard, today]);
   const fundingPayments = [
     ...allUpcoming.map((payment) => ({ ...payment, kind: 'recurring' as const })),
     ...data.bankLoans.filter((loan) => loan.outstandingBalance > 0 && loan.installment > 0 && bankLoanAccountId(loan)).map((loan) => ({ id: `bank-loan-${loan.id}`, sourceId: loan.id, name: loan.name, amount: Math.min(loan.installment, loan.outstandingBalance), next_due_date: loan.nextDueDate, pay_from_account_id: bankLoanAccountId(loan)!, payment_method: 'Automatic Debit', kind: 'bankLoan' as const })),
     ...cardSummaries.filter(({ card, estimatedPayment }) => estimatedPayment > 0 && card.payFromAccountId).map(({ card, estimatedPayment, nextPaymentDate }) => ({ id: `credit-card-${card.id}`, sourceId: card.id, name: `${card.name} payment`, amount: estimatedPayment, next_due_date: nextPaymentDate, pay_from_account_id: card.payFromAccountId!, payment_method: 'Bank Transfer', kind: 'creditCard' as const })),
   ];
+  const fundingByAccount = new Map<string, typeof fundingPayments>();
+  for (const payment of fundingPayments) { const group = fundingByAccount.get(payment.pay_from_account_id); if (group) group.push(payment); else fundingByAccount.set(payment.pay_from_account_id, [payment]); }
   const fundingPlan = data.accounts.map((account) => {
-    const payments = fundingPayments.filter((payment) => payment.pay_from_account_id === account.id);
+    const payments = fundingByAccount.get(account.id) || [];
     const required = payments.reduce((sum, payment) => sum + payment.amount, 0);
     const ready = Math.min(Math.max(account.balance, 0), required);
     const nextDue = payments.map((payment) => payment.next_due_date).sort()[0] || null;
@@ -788,7 +792,7 @@ export default function Home() {
             </form>
           </section>
         </div>}
-        {celebrationKey > 0 && <div className="money-rain" aria-hidden="true" key={celebrationKey}>{Array.from({ length: 30 }, (_, index) => <i className="money-particle" key={index} data-drift={(index % 2 ? 1 : -1) * (24 + index % 7 * 11)} data-spin={(index % 2 ? 1 : -1) * (220 + index * 19)} data-scale={.72 + index % 5 * .12} style={{ left: `${3 + (index * 31) % 94}%` }}>{index % 5 === 0 ? '$' : index % 4 === 0 ? '✦' : '¢'}</i>)}</div>}
+        {celebrationKey > 0 && <div className={`money-rain ${celebrationKind === 'expense' ? 'expense-rain' : 'income-rain'}`} aria-hidden="true" key={celebrationKey}>{Array.from({ length: 30 }, (_, index) => <i className="money-particle" key={index} data-drift={(index % 2 ? 1 : -1) * (24 + index % 7 * 11)} data-spin={(index % 2 ? 1 : -1) * (220 + index * 19)} data-scale={.72 + index % 5 * .12} style={{ left: `${3 + (index * 31) % 94}%` }}>{celebrationKind === 'expense' ? index % 4 === 0 ? '↓' : index % 3 === 0 ? '−' : '$' : index % 5 === 0 ? '$' : index % 4 === 0 ? '✦' : '¢'}</i>)}</div>}
         {toast && <div className="toast" role="status"><span>✓</span>{toast}</div>}
       </section>
       <ConfirmDialog request={confirmDialog.request} language={language} onAnswer={confirmDialog.answer} />
