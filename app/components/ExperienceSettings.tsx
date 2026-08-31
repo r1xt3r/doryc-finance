@@ -1,13 +1,29 @@
  'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ExperiencePreferences } from '../../lib/useExperiencePreferences';
 
 export default function ExperienceSettings({ value, language, onChange, open, onToggle, onStartTour }: { value: ExperiencePreferences; language: 'en' | 'es'; onChange: (value: ExperiencePreferences) => void; open: boolean; onToggle: () => void; onStartTour: () => void }) {
   const es = language === 'es';
   const trigger = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLElement>(null);
   const [position, setPosition] = useState({ top: 82, left: 12 });
+  useEffect(() => {
+    if (!open) return;
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node) || trigger.current?.contains(target) || popoverRef.current?.contains(target)) return;
+      onToggle();
+    };
+    const closeWithEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') onToggle(); };
+    document.addEventListener('pointerdown', closeOutside, true);
+    document.addEventListener('keydown', closeWithEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOutside, true);
+      document.removeEventListener('keydown', closeWithEscape);
+    };
+  }, [open, onToggle]);
   const toggle = () => {
     const bounds = trigger.current?.getBoundingClientRect();
     if (!open && bounds) {
@@ -21,7 +37,7 @@ export default function ExperienceSettings({ value, language, onChange, open, on
     { id: 'midnight', name: es ? 'Medianoche' : 'Midnight', colors: ['#80baff', '#101722'] },
     { id: 'warm', name: es ? 'Cálido' : 'Warm', colors: ['#f4c477', '#211b15'] },
   ];
-  const popover = open && typeof document !== 'undefined' ? createPortal(<section className="experience-popover experience-popover-portal" style={{ top: position.top, left: position.left }} aria-label={es ? 'Preferencias de experiencia' : 'Experience preferences'} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+  const popover = open && typeof document !== 'undefined' ? createPortal(<section ref={popoverRef} className="experience-popover experience-popover-portal" style={{ top: position.top, left: position.left }} aria-label={es ? 'Preferencias de experiencia' : 'Experience preferences'} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
       <p className="eyebrow">{es ? 'EXPERIENCIA' : 'EXPERIENCE'}</p><h3>{es ? 'Hazlo tuyo' : 'Make it yours'}</h3>
       <div className="experience-group"><span>{es ? 'Tema' : 'Theme'}</span><div className="theme-options">{themes.map((theme) => <button key={theme.id} type="button" className={value.theme === theme.id ? 'active' : ''} aria-pressed={value.theme === theme.id} onClick={() => onChange({ ...value, theme: theme.id })}><i style={{ background: `linear-gradient(135deg,${theme.colors[0]} 0 50%,${theme.colors[1]} 50%)` }} /><b>{theme.name}</b>{value.theme === theme.id && <em>✓</em>}</button>)}</div></div>
       <div className="experience-group"><span>{es ? 'Movimiento' : 'Motion'}</span><div className="motion-options"><button type="button" className={value.motion === 'full' ? 'active' : ''} aria-pressed={value.motion === 'full'} onClick={() => onChange({ ...value, motion: 'full' })}><b>{es ? 'Completo' : 'Full'}</b><small>{es ? 'Animaciones y celebraciones' : 'Animations and celebrations'}</small></button><button type="button" className={value.motion === 'reduced' ? 'active' : ''} aria-pressed={value.motion === 'reduced'} onClick={() => onChange({ ...value, motion: 'reduced' })}><b>{es ? 'Reducido' : 'Reduced'}</b><small>{es ? 'Una experiencia más tranquila' : 'A calmer experience'}</small></button></div></div>

@@ -1,11 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
   <defs>
-    <linearGradient id="midnight" x1="8" y1="5" x2="56" y2="59" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#d9ffb8"/><stop offset=".5" stop-color="#76bfff"/><stop offset="1" stop-color="#9cdd72"/>
-    </linearGradient>
+    <linearGradient id="midnight" x1="8" y1="4" x2="54" y2="60" gradientUnits="userSpaceOnUse"><stop stop-color="#dcffb2"/><stop offset=".52" stop-color="#80baff"/><stop offset="1" stop-color="#78ae47"/></linearGradient>
   </defs>
-  <rect x="2" y="2" width="60" height="60" rx="18" fill="url(#midnight)" stroke="#efffe2" stroke-width="1.5"/>
-  <path fill="#102033" fill-rule="evenodd" d="M22 16h13c10.5 0 17 6.1 17 16s-6.5 16-17 16H22V16Zm9 8v16h3.5c5.3 0 8.5-2.8 8.5-8s-3.2-8-8.5-8H31Z"/>
-  <path d="m14 40 5-5 3.5 3.2 7-8" fill="none" stroke="#102033" stroke-opacity=".45" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="m14 40 5-5 3.5 3.2 7-8m-4.5 0h4.5v4.5" fill="none" stroke="#f8fcff" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="64" height="64" rx="18" fill="#101722"/>
+  <rect x="5" y="5" width="54" height="54" rx="15" fill="url(#midnight)"/>
+  <path d="M22 15h13c10 0 17 6 17 17S45 49 35 49H22V15Zm9 9v16h4c5 0 8-3 8-8s-3-8-8-8h-4Z" fill="#101722"/>
+  <path d="m12 40 7-7 5 5 10-11m-5 0h5v5" fill="none" stroke="#f7ffe9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
