@@ -31,7 +31,7 @@ Do not use the reset scripts or seed data on the production project.
 5. Verify create, edit, payment, undo and delete flows.
 6. Set `NEXT_PUBLIC_APP_URL` to the public HTTPS address.
 7. Add that address to Supabase Auth redirect URLs.
-8. Configure the official support contact and operating entity in the legal pages.
+8. Confirm the official support contact (`Richard Molina · ramolinap03@gmail.com`) remains current.
 9. Configure the confirmation and password-recovery email templates.
 10. Confirm automated quality checks pass on the release commit.
 
