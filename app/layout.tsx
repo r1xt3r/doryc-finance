@@ -5,10 +5,10 @@ import ExperienceBootstrap from './components/ExperienceBootstrap';
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'),
   title: 'Doryc — Personal Finance',
-  description: 'An animated personal finance dashboard for calm, intentional money management.',
+  description: 'Organiza tus cuentas, pagos, ahorros y deudas con claridad.',
   applicationName: 'Doryc Finance',
-  icons: { icon: '/icon.svg', shortcut: '/icon.svg', apple: '/icon.svg' },
-  appleWebApp: { capable: true, title: 'Doryc' },
+  icons: { icon: [{ url: '/icon.svg', type: 'image/svg+xml' }, { url: '/doryc-icon-192.png', sizes: '192x192', type: 'image/png' }], shortcut: '/icon.svg', apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }] },
+  appleWebApp: { capable: true, title: 'Doryc', statusBarStyle: 'black-translucent' },
   openGraph: {
     title: 'Doryc — Personal Finance',
     description: 'Personal finance, in motion.',

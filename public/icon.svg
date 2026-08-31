@@ -1,7 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <defs><linearGradient id="g" x1="8" y1="4" x2="54" y2="60"><stop stop-color="#dcffb2"/><stop offset=".5" stop-color="#bdf477"/><stop offset="1" stop-color="#78ae47"/></linearGradient></defs>
-  <rect width="64" height="64" rx="18" fill="#101510"/>
-  <rect x="5" y="5" width="54" height="54" rx="15" fill="url(#g)"/>
-  <path d="M22 15h13c10 0 17 6 17 17S45 49 35 49H22V15Zm9 9v16h4c5 0 8-3 8-8s-3-8-8-8h-4Z" fill="#111711"/>
-  <path d="m12 40 7-7 5 5 10-11m-5 0h5v5" fill="none" stroke="#f7ffe9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="doryc-mint" x1="10" y1="7" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#dcffb2"/>
+      <stop offset=".52" stop-color="#bdf477"/>
+      <stop offset="1" stop-color="#8dcc52"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#0b0f0c"/>
+  <rect x="5" y="5" width="54" height="54" rx="15" fill="url(#doryc-mint)"/>
+  <path fill="#101510" fill-rule="evenodd" d="M18 14h16.5C46 14 53 20.8 53 32S46 50 34.5 50H18V14Zm11 9v18h5c5.5 0 8.5-3.2 8.5-9S39.5 23 34 23h-5Z"/>
+  <circle cx="22.5" cy="32" r="3" fill="#bdf477"/>
 </svg>
