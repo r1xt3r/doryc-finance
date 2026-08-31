@@ -163,6 +163,11 @@ export async function POST(request: Request) {
     const authorization = request.headers.get('authorization');
     const { supabase, user } = await requireUser(authorization);
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    async function hasFunds(accountId: string, amountCents: number) {
+      const snapshot = await getDashboard(authorization);
+      const account = snapshot?.accounts.find((item) => item.id === accountId);
+      return Boolean(account && Math.round(account.balance * 100) >= amountCents);
+    }
     const body = await request.json() as Record<string, string>;
     if (body.entity === 'accountUpdate') {
       const balanceCents = Math.round(Number(body.balance || 0) * 100);
@@ -175,7 +180,27 @@ export async function POST(request: Request) {
       const type = body.type?.toLowerCase();
       const amountCents = Math.round(Number(body.amount) * 100);
       if (!body.id || !['expense', 'income', 'transfer'].includes(type) || !body.description?.trim() || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the movement information.' }, { status: 400 });
+      if (type === 'expense' || type === 'transfer') {
+        const [{ data: previous }, snapshot] = await Promise.all([
+          supabase.from('transactions').select('type,amount_cents,from_account_id,to_account_id').eq('id', body.id).single(),
+          getDashboard(authorization),
+        ]);
+        const source = snapshot?.accounts.find((account) => account.id === body.fromAccountId);
+        let availableCents = Math.round((source?.balance || 0) * 100);
+        if (previous?.from_account_id === body.fromAccountId && (previous.type === 'expense' || previous.type === 'transfer')) availableCents += previous.amount_cents;
+        if (previous?.to_account_id === body.fromAccountId && (previous.type === 'income' || previous.type === 'transfer')) availableCents -= previous.amount_cents;
+        if (!source || availableCents < amountCents) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
+      }
       const { error: updateError } = await supabase.from('transactions').update({ type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null }).eq('id', body.id);
+      if (updateError) throw updateError;
+      return Response.json(await getDashboard(authorization));
+    }
+    if (body.entity === 'recurringUpdate') {
+      const amountCents = Math.round(Number(body.amount) * 100);
+      const flowType = body.flowType === 'income' ? 'income' : 'expense';
+      const accountId = flowType === 'income' ? body.toAccountId : body.fromAccountId;
+      if (!body.id || !body.description?.trim() || amountCents <= 0 || !body.date || !accountId) return Response.json({ error: 'Complete the recurring payment information.' }, { status: 400 });
+      const { error: updateError } = await supabase.from('recurring_payments').update({ name: body.description.trim(), amount_cents: amountCents, next_due_date: body.date, pay_from_account_id: accountId, category: body.category || null, payment_method: flowType === 'income' ? 'Recurring Income' : body.paymentMethod || null }).eq('id', body.id);
       if (updateError) throw updateError;
       return Response.json(await getDashboard(authorization));
     }
@@ -225,6 +250,7 @@ export async function POST(request: Request) {
     if (body.entity === 'personalLoan') {
       const amountCents = Math.round(Number(body.amount) * 100);
       if (!['i_owe', 'owed_to_me'].includes(body.direction) || !body.personName?.trim() || amountCents <= 0) return Response.json({ error: 'Complete the loan information.' }, { status: 400 });
+      if (body.direction === 'owed_to_me' && body.accountId && !await hasFunds(body.accountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { error: insertError } = await supabase.from('personal_loans').insert({ user_id: user.id, direction: body.direction, person_name: body.personName.trim(), amount_cents: amountCents, account_id: body.accountId || null, due_date: body.dueDate || null, note: body.note?.trim() || null });
       if (insertError) throw insertError;
       return Response.json(await getDashboard(authorization), { status: 201 });
@@ -232,6 +258,7 @@ export async function POST(request: Request) {
     if (body.entity === 'creditCardPayment') {
       const amountCents = Math.round(Number(body.amount) * 100);
       if (!body.creditCardId || !body.fromAccountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the card payment.' }, { status: 400 });
+      if (!await hasFunds(body.fromAccountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { error: paymentError } = await supabase.from('credit_card_payments').insert({ user_id: user.id, credit_card_id: body.creditCardId, from_account_id: body.fromAccountId, amount_cents: amountCents, payment_date: body.date, note: body.note || null });
       if (paymentError) throw paymentError;
       const { data: card } = await supabase.from('credit_cards').select('current_statement_cents').eq('id', body.creditCardId).single();
@@ -248,6 +275,7 @@ export async function POST(request: Request) {
     if (body.entity === 'bankLoanPayment') {
       const amountCents = Math.round(Number(body.amount) * 100);
       if (!body.bankLoanId || !body.fromAccountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the bank loan payment.' }, { status: 400 });
+      if (!await hasFunds(body.fromAccountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { data: loan, error: loanError } = await supabase.from('bank_loans').select('name,outstanding_balance_cents,paid_installments,total_installments,next_due_date').eq('id', body.bankLoanId).single();
       if (loanError || !loan) return Response.json({ error: 'Bank loan not found.' }, { status: 404 });
       const paidCents = Math.min(amountCents, loan.outstanding_balance_cents);
@@ -265,6 +293,8 @@ export async function POST(request: Request) {
       if (!body.personalLoanId || !body.accountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the loan payment.' }, { status: 400 });
       const { data: loan, error: loanError } = await supabase.from('personal_loans').select('amount_cents,paid_cents').eq('id', body.personalLoanId).single();
       if (loanError || !loan || loan.paid_cents + amountCents > loan.amount_cents) return Response.json({ error: 'Payment exceeds the remaining amount.' }, { status: 400 });
+      const { data: loanDirection } = await supabase.from('personal_loans').select('direction').eq('id', body.personalLoanId).single();
+      if (loanDirection?.direction === 'i_owe' && !await hasFunds(body.accountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { error: paymentError } = await supabase.from('personal_loan_payments').insert({ user_id: user.id, personal_loan_id: body.personalLoanId, account_id: body.accountId, amount_cents: amountCents, payment_date: body.date });
       if (paymentError) throw paymentError;
       const paidCents = loan.paid_cents + amountCents;
@@ -293,6 +323,12 @@ export async function POST(request: Request) {
       const months = Number(body.installmentMonths || 1);
       const { data: ownedCard } = await supabase.from('credit_cards').select('id').eq('id', body.creditCardId).maybeSingle();
       if (!ownedCard || !body.description?.trim() || amountCents <= 0 || months < 1 || months > 36 || !body.date) return Response.json({ error: 'Complete the card purchase information.' }, { status: 400 });
+      const snapshot = await getDashboard(authorization);
+      const card = snapshot?.creditCards.find((item) => item.id === body.creditCardId);
+      const purchases = snapshot?.cardPurchases.filter((item) => item.creditCardId === body.creditCardId).reduce((sum, item) => sum + item.amount, 0) || 0;
+      const payments = snapshot?.cardPayments.filter((item) => item.creditCardId === body.creditCardId).reduce((sum, item) => sum + item.amount, 0) || 0;
+      const availableCreditCents = Math.round(((card?.creditLimit || 0) - Math.max(0, (card?.openingUsed || 0) + purchases - payments)) * 100);
+      if (!card || availableCreditCents < amountCents) return Response.json({ error: 'Insufficient available credit on this card.' }, { status: 400 });
       const { error: insertError } = await supabase.from('credit_card_purchases').insert({ user_id: user.id, credit_card_id: body.creditCardId, description: body.description.trim(), amount_cents: amountCents, purchase_date: body.date, category: body.category || null, installment_months: months, with_interest: body.withInterest === 'true' });
       if (insertError) throw insertError;
       return Response.json(await getDashboard(authorization), { status: 201 });
@@ -309,6 +345,7 @@ export async function POST(request: Request) {
     if ((type === 'expense' || (type === 'recurring' && recurringFlow === 'expense') || type === 'transfer') && !ownedIds.has(body.fromAccountId)) return Response.json({ error: 'Invalid source account.' }, { status: 400 });
     if ((type === 'income' || (type === 'recurring' && recurringFlow === 'income') || type === 'transfer') && !ownedIds.has(body.toAccountId)) return Response.json({ error: 'Invalid destination account.' }, { status: 400 });
     if (type === 'transfer' && body.fromAccountId === body.toAccountId) return Response.json({ error: 'Choose two different accounts.' }, { status: 400 });
+    if ((type === 'expense' || type === 'transfer') && !await hasFunds(body.fromAccountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
 
     const result = type === 'recurring'
       ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: body.date, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null })
@@ -355,6 +392,11 @@ export async function PATCH(request: Request) {
       const { error: undoError } = await supabase.from('recurring_payments').update({ paid_this_cycle: false, next_due_date: previousDue.toISOString().slice(0, 10) }).eq('id', payment.id);
       if (undoError) throw undoError;
       return Response.json(await getDashboard(authorization));
+    }
+    if (flowType === 'expense') {
+      const snapshot = await getDashboard(authorization);
+      const source = snapshot?.accounts.find((account) => account.id === payment.pay_from_account_id);
+      if (!source || Math.round(source.balance * 100) < payment.amount_cents) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
     }
     const { error: transactionError } = await supabase.from('transactions').insert({
       user_id: user.id, type: flowType, description: payment.name, amount_cents: payment.amount_cents,

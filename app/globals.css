@@ -18,6 +18,11 @@ button:disabled { cursor:not-allowed; }
 .dashboard-nav button:hover { background:#1b211c; color:#e7ece3; }
 .dashboard-nav button.active { border-color:#354035; background:#232b23; color:#fff; }
 .dashboard-nav i { display:grid; place-items:center; width:30px; height:30px; border-radius:9px; background:#1e261f; color:var(--mint); font-style:normal; }
+.dashboard-nav i svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.dashboard-nav button:nth-child(1) i { color:#bdf477; background:#20301d; }.dashboard-nav button:nth-child(2) i { color:#7ee6d1; background:#172c28; }.dashboard-nav button:nth-child(3) i { color:#ffd074; background:#302718; }.dashboard-nav button:nth-child(4) i { color:#b8a8ff; background:#27233a; }.dashboard-nav button:nth-child(5) i { color:#ff9c91; background:#321f1e; }.dashboard-nav button:nth-child(6) i { color:#80baff; background:#1b2837; }
+.dashboard-nav button.active i { color:#101510; }
+.purchase-actions button { display:inline-grid; place-items:center; width:30px; height:30px; padding:0; border:1px solid #6b3432; border-radius:8px; background:#351817; color:#ff8f85; font-size:0; }
+.purchase-actions button:before { content:""; width:13px; height:13px; background:currentColor; mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' d='M3 6h18M8 6V4h8v2m-9 0 1 15h8l1-15M10 10v7m4-7v7'/%3E%3C/svg%3E") center/contain no-repeat; }
 .dashboard-nav span { font-size:11px; font-weight:750; }.dashboard-nav b { display:grid; place-items:center; min-width:18px; height:18px; padding:0 5px; border-radius:999px; background:var(--mint); color:#111; font-size:8px; }
 .nav-item { display:flex; gap:13px; align-items:center; padding:12px 13px; border-radius:12px; color:#969d92; text-decoration:none; font-size:14px; font-weight:620; transition:.25s ease; }
 .nav-item span { width:20px; text-align:center; font-size:18px; }
