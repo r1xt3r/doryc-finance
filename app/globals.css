@@ -443,6 +443,7 @@ html[data-motion="reduced"] *,html[data-motion="reduced"] *:before,html[data-mot
 /* Functional experience preferences */
 .experience-trigger svg { display:block; }
 .experience-popover { width:286px; padding:18px; }
+.experience-popover-portal { position:fixed; z-index:360; top:82px; right:28px; pointer-events:auto; }
 .experience-group { margin-top:16px; }
 .experience-group>span { display:block; margin-bottom:7px; color:var(--muted); font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
 .theme-options { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
@@ -487,8 +488,12 @@ html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-ac
   .auth-panel { margin-top:-22px; padding:31px 20px 44px; }
   .auth-heading { margin-bottom:23px; }.auth-heading h2 { font-size:32px; }
   .auth-card form { gap:14px; }.auth-card input { min-height:51px; padding-top:14px; padding-bottom:14px; }
-  .experience-popover { position:fixed; top:78px; right:12px; width:calc(100vw - 24px); }
+  .experience-popover { position:fixed; top:72px; right:12px; width:calc(100vw - 24px); }
 }
+
+/* Forms are true focus layers: no dashboard controls float above them. */
+.modal-backdrop { z-index:300; background:rgba(5,8,6,.96); backdrop-filter:blur(14px); }
+.modal-card { position:relative; z-index:1; box-shadow:0 32px 100px rgba(0,0,0,.78); }
 
 /* Credit and loans share one visual rhythm. */
 .cards-panel,.bank-loans-panel { margin:24px 0; padding:26px!important; }
