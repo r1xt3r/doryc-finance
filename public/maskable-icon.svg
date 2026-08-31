@@ -1,14 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#f7f8f5"/>
-  <g fill="none" stroke="#102033" stroke-width="28" stroke-linecap="round">
-    <path d="M128 80h160"/>
-    <path d="M128 124h220"/>
-    <path d="M128 168h260"/>
-    <path d="M128 212h280"/>
-    <path d="M128 300h280"/>
-    <path d="M128 344h260"/>
-    <path d="M128 388h220"/>
-    <path d="M128 432h160"/>
-  </g>
-  <path d="M128 256h288" fill="none" stroke="#35b9a8" stroke-width="32" stroke-linecap="round"/>
+  <defs><linearGradient id="midnight-mask" x1="62" y1="42" x2="456" y2="472" gradientUnits="userSpaceOnUse"><stop stop-color="#d9ffb8"/><stop offset=".5" stop-color="#76bfff"/><stop offset="1" stop-color="#9cdd72"/></linearGradient></defs>
+  <rect width="512" height="512" fill="url(#midnight-mask)"/>
+  <path fill="#102033" fill-rule="evenodd" d="M174 128h104c84 0 136 49 136 128s-52 128-136 128H174V128Zm72 64v128h28c42 0 68-22 68-64s-26-64-68-64h-28Z"/>
+  <path d="m112 328 40-40 28 26 56-64" fill="none" stroke="#102033" stroke-opacity=".45" stroke-width="40" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m112 328 40-40 28 26 56-64m-36 0h36v36" fill="none" stroke="#f8fcff" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
