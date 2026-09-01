@@ -253,6 +253,11 @@ export default function Home() {
 
   const availableAccounts = data.accounts.filter((account) => account.name !== 'Produbanco Savings');
   const totalBalance = availableAccounts.reduce((sum, account) => sum + account.balance, 0);
+  const availableByBank = useMemo(() => {
+    const grouped = new Map<string, number>();
+    for (const account of availableAccounts) grouped.set(account.bank, (grouped.get(account.bank) || 0) + account.balance);
+    return [...grouped.entries()].map(([bank, balance]) => ({ bank, balance }));
+  }, [availableAccounts]);
   const activity = showAllActivity ? data.transactions : data.transactions.slice(0, 5);
   const recurringIncome = data.recurring.filter((item) => item.flowType === 'income');
   const recurringExpenses = data.recurring.filter((item) => item.flowType !== 'income');
@@ -660,7 +665,8 @@ export default function Home() {
           <article className="balance-card" data-reveal>
             <button className="balance-card-trigger" type="button" onClick={() => setShowBalanceDetail(true)} aria-haspopup="dialog">
               <div className="card-kicker"><span>{tr('Available balance', 'Saldo disponible')}</span><span className="live-dot">{tr('Live', 'En vivo')}</span></div>
-              <strong className="balance">{money(totalBalance)}</strong><p>{tr(`Across ${availableAccounts.length} available accounts`, `En ${availableAccounts.length} cuentas disponibles`)}</p>
+              <strong className="balance">{money(totalBalance)}</strong><p>{tr(`Across ${availableByBank.length} banks · ${availableAccounts.length} available accounts`, `En ${availableByBank.length} bancos · ${availableAccounts.length} cuentas disponibles`)}</p>
+              <div className="balance-bank-grid">{availableByBank.map(({ bank, balance }) => <span key={bank}><i>{bank.slice(0, 1).toUpperCase()}</i><small>{bank}</small><strong>{money(balance)}</strong></span>)}</div>
               <div className="balance-footer"><span><small>{tr('Income this month', 'Ingresos este mes')}</small><strong>+{money(data.income)}</strong></span><span><small>{tr('Spent this month', 'Gastado este mes')}</small><strong>−{money(data.spent)}</strong></span></div>
               <small className="balance-detail-hint">{tr('View account breakdown', 'Ver detalle por cuentas')} <b>→</b></small>
             </button>
