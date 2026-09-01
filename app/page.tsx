@@ -125,6 +125,8 @@ export default function Home() {
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
   const [activityStartDate, setActivityStartDate] = useState(today);
   const [activityEndDate, setActivityEndDate] = useState(today);
+  const [activityDraftStartDate, setActivityDraftStartDate] = useState(today);
+  const [activityDraftEndDate, setActivityDraftEndDate] = useState(today);
   const [showCardPaymentHistory, setShowCardPaymentHistory] = useState(false);
   const [showBalanceDetail, setShowBalanceDetail] = useState(false);
   const [showFundingPlan, setShowFundingPlan] = useState(false);
@@ -788,7 +790,7 @@ export default function Home() {
                 <div className="chart-insight"><span>↗</span><p><strong>{categorySpending[0].category} is your largest category.</strong><small>It represents {((categorySpending[0].amount / data.spent) * 100).toFixed(0)}% of this month&apos;s spending.</small></p></div>
               </> : <div className="chart-empty"><strong>No expenses yet</strong><small>Your category chart will appear after your first expense.</small></div>}
             </div>
-            <div className="activity-list"><div className="activity-date-filter"><span><small>{tr('FROM', 'DESDE')}</small><input type="date" value={activityStartDate} max={activityEndDate} onChange={(event) => { const value = event.target.value; setActivityStartDate(value); if (value > activityEndDate) setActivityEndDate(value); }}/></span><span><small>{tr('TO', 'HASTA')}</small><input type="date" value={activityEndDate} min={activityStartDate} onChange={(event) => { const value = event.target.value; setActivityEndDate(value); if (value < activityStartDate) setActivityStartDate(value); }}/></span><button type="button" onClick={() => { setActivityStartDate(today); setActivityEndDate(today); }}>{tr('Today', 'Hoy')}</button><b>{activity.length} {tr(activity.length === 1 ? 'movement' : 'movements', activity.length === 1 ? 'movimiento' : 'movimientos')}</b></div>
+            <div className="activity-list"><form className="activity-date-filter" onSubmit={(event) => { event.preventDefault(); setActivityStartDate(activityDraftStartDate); setActivityEndDate(activityDraftEndDate); }}><span><small>{tr('FROM', 'DESDE')}</small><input type="date" value={activityDraftStartDate} max={activityDraftEndDate} onChange={(event) => { const value = event.target.value; if (!value) return; setActivityDraftStartDate(value); if (value > activityDraftEndDate) setActivityDraftEndDate(value); }}/></span><span><small>{tr('TO', 'HASTA')}</small><input type="date" value={activityDraftEndDate} min={activityDraftStartDate} onChange={(event) => { const value = event.target.value; if (!value) return; setActivityDraftEndDate(value); if (value < activityDraftStartDate) setActivityDraftStartDate(value); }}/></span><span className="activity-filter-actions"><button type="submit">{tr('Apply', 'Aplicar')}</button><button type="button" onClick={() => { setActivityDraftStartDate(today); setActivityDraftEndDate(today); setActivityStartDate(today); setActivityEndDate(today); }}>{tr('Today', 'Hoy')}</button></span><b>{activity.length} {tr(activity.length === 1 ? 'movement' : 'movements', activity.length === 1 ? 'movimiento' : 'movimientos')}</b></form>
               {activity.length ? activity.map((item) => {
                 const account = item.type === 'income' ? accountMap.get(item.to_account_id || '') : accountMap.get(item.from_account_id || '');
                 const prefix = item.type === 'income' ? '+' : item.type === 'transfer' ? '⇄ ' : '−';
