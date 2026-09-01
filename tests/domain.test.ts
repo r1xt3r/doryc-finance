@@ -27,3 +27,34 @@ test('a card payment expense affects its account exactly once', () => {
   const balances = calculateAccountBalances([{ id: 'checking', starting_balance_cents: 10000 }], [{ type: 'expense', amount_cents: 2500, from_account_id: 'checking', to_account_id: null }], [], []);
   assert.equal(balances.get('checking'), 7500);
 });
+
+test('a transfer subtracts from its source and adds to its destination exactly once', () => {
+  const balances = calculateAccountBalances(
+    [
+      { id: 'pichincha-debit', starting_balance_cents: 20000 },
+      { id: 'produbanco-checking', starting_balance_cents: 0 },
+    ],
+    [{ type: 'transfer', amount_cents: 7470, from_account_id: 'pichincha-debit', to_account_id: 'produbanco-checking' }],
+    [],
+    [],
+  );
+  assert.equal(balances.get('pichincha-debit'), 12530);
+  assert.equal(balances.get('produbanco-checking'), 7470);
+});
+
+test('income and expenses affect only the account explicitly selected', () => {
+  const balances = calculateAccountBalances(
+    [
+      { id: 'debit', starting_balance_cents: 10000 },
+      { id: 'checking', starting_balance_cents: 5000 },
+    ],
+    [
+      { type: 'income', amount_cents: 3000, from_account_id: null, to_account_id: 'checking' },
+      { type: 'expense', amount_cents: 1200, from_account_id: 'debit', to_account_id: null },
+    ],
+    [],
+    [],
+  );
+  assert.equal(balances.get('debit'), 8800);
+  assert.equal(balances.get('checking'), 8000);
+});

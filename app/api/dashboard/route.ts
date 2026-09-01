@@ -10,12 +10,14 @@ export const dynamic = 'force-dynamic';
 
 type AccountRow = { id: string; name: string; bank: string; account_type: string; starting_balance_cents: number };
 type TransactionRow = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount_cents: number; transaction_date: string; budget_month: string | null; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; created_at: string };
-type RecurringRow = { id: string; name: string; amount_cents: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: boolean };
+type SharedMember = { name: string; amountCents: number };
+type RecurringRow = { id: string; name: string; amount_cents: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: boolean; shared_members: SharedMember[] };
+type SharedContributionRow = { id: string; recurring_payment_id: string; participant_name: string; amount_cents: number; cycle_month: string; received_account_id: string; received_date: string; created_at: string };
 type CreditCardRow = { id: string; name: string; bank: string; credit_limit_cents: number; opening_used_cents: number; current_statement_cents: number; annual_effective_rate: number; payment_day: number | null; statement_day: number | null; network: string; pay_from_account_id: string | null };
 type CardPurchaseRow = { id: string; credit_card_id: string; description: string; amount_cents: number; purchase_date: string; category: string | null; installment_months: number; installments_paid: number; with_interest: boolean };
 type CardPaymentRow = { id: string; credit_card_id: string; from_account_id: string; amount_cents: number; payment_date: string; note: string | null };
 type PersonalLoanRow = { id: string; direction: 'i_owe' | 'owed_to_me'; person_name: string; amount_cents: number; paid_cents: number; account_id: string | null; due_date: string | null; note: string | null; status: 'open' | 'settled'; created_at: string | null };
-type LoanPaymentRow = { id: string; personal_loan_id: string; account_id: string; amount_cents: number; payment_date: string; entry_type: 'payment' | 'advance' };
+type LoanPaymentRow = { id: string; personal_loan_id: string; account_id: string; amount_cents: number; payment_date: string; entry_type: 'payment' | 'advance'; created_at: string };
 type BankLoanRow = { id: string; bank: string; name: string; original_amount_cents: number; outstanding_balance_cents: number; installment_cents: number; next_due_date: string; payment_day: number; total_installments: number; paid_installments: number; annual_rate: number | null; pay_from_account_id: string | null; active: boolean };
 const BANK_CARD_RATES: Record<string, number> = { pichincha: 16.77, produbanco: 16.77, pacifico: 16.77, guayaquil: 16.77 };
 
@@ -32,22 +34,28 @@ async function requireUser(authorization?: string | null) {
 async function getDashboard(authorization?: string | null) {
   const { supabase, user } = await requireUser(authorization);
   if (!user) return null;
-  const [accountQuery, transactionQuery, recurringQuery, cardQuery, cardPurchaseQuery, cardPaymentQuery, personalLoanQuery, loanPaymentQuery, preferenceQuery, bankLoanQuery] = await Promise.all([
+  const [accountQuery, transactionQuery, recurringQuery, cardQuery, cardPurchaseQuery, cardPaymentQuery, personalLoanQuery, loanPaymentQuery, preferenceQuery, bankLoanQuery, sharedContributionQuery] = await Promise.all([
     supabase.from('accounts').select('id,name,bank,account_type,starting_balance_cents').eq('active', true).order('created_at'),
     supabase.from('transactions').select('id,type,description,amount_cents,transaction_date,budget_month,from_account_id,to_account_id,category,payment_method,created_at').order('transaction_date', { ascending: false }).order('created_at', { ascending: false }),
-    supabase.from('recurring_payments').select('id,name,amount_cents,next_due_date,pay_from_account_id,category,payment_method,paid_this_cycle').eq('active', true).order('next_due_date'),
+    supabase.from('recurring_payments').select('id,name,amount_cents,next_due_date,pay_from_account_id,category,payment_method,paid_this_cycle,shared_members').eq('active', true).order('next_due_date'),
     supabase.from('credit_cards').select('id,name,bank,credit_limit_cents,opening_used_cents,current_statement_cents,annual_effective_rate,payment_day,statement_day,network,pay_from_account_id').eq('active', true).order('created_at'),
     supabase.from('credit_card_purchases').select('id,credit_card_id,description,amount_cents,purchase_date,category,installment_months,installments_paid,with_interest').eq('active', true).order('purchase_date', { ascending: false }).order('created_at', { ascending: false }),
     supabase.from('credit_card_payments').select('id,credit_card_id,from_account_id,amount_cents,payment_date,note').order('payment_date', { ascending: false }),
     supabase.from('personal_loans').select('id,direction,person_name,amount_cents,paid_cents,account_id,due_date,note,status,created_at').order('due_date', { ascending: true, nullsFirst: false }),
-    supabase.from('personal_loan_payments').select('id,personal_loan_id,account_id,amount_cents,payment_date,entry_type').order('payment_date', { ascending: false }),
+    supabase.from('personal_loan_payments').select('id,personal_loan_id,account_id,amount_cents,payment_date,entry_type,created_at').order('payment_date', { ascending: false }).order('created_at', { ascending: false }),
     supabase.from('user_preferences').select('onboarding_completed').maybeSingle(),
     supabase.from('bank_loans').select('id,bank,name,original_amount_cents,outstanding_balance_cents,installment_cents,next_due_date,payment_day,total_installments,paid_installments,annual_rate,pay_from_account_id,active').eq('active', true).order('next_due_date'),
+    supabase.from('shared_payment_contributions').select('id,recurring_payment_id,participant_name,amount_cents,cycle_month,received_account_id,received_date,created_at').order('received_date', { ascending: false }).order('created_at', { ascending: false }),
   ]);
   if (accountQuery.error) throw accountQuery.error;
   if (transactionQuery.error) throw transactionQuery.error;
-  if (recurringQuery.error) throw recurringQuery.error;
-  const recurringRows = normalizeSalarySchedules(recurringQuery.data as RecurringRow[]);
+  let recurringData = recurringQuery.data as RecurringRow[] | null;
+  if (recurringQuery.error) {
+    const fallback = await supabase.from('recurring_payments').select('id,name,amount_cents,next_due_date,pay_from_account_id,category,payment_method,paid_this_cycle').eq('active', true).order('next_due_date');
+    if (fallback.error) throw fallback.error;
+    recurringData = (fallback.data || []).map((item) => ({ ...item, shared_members: [] })) as RecurringRow[];
+  }
+  const recurringRows = normalizeSalarySchedules(recurringData || []);
   let cardRows = cardQuery.data as CreditCardRow[] | null;
   let cardPurchaseRows = cardPurchaseQuery.data as CardPurchaseRow[] | null;
   if (cardQuery.error) console.error('Credit card query failed:', cardQuery.error.message);
@@ -76,7 +84,7 @@ async function getDashboard(authorization?: string | null) {
   personalLoans ||= [];
   let loanPayments = loanPaymentQuery.data as LoanPaymentRow[] | null;
   if (loanPaymentQuery.error) {
-    const fallback = await supabase.from('personal_loan_payments').select('id,personal_loan_id,account_id,amount_cents,payment_date').order('payment_date', { ascending: false });
+    const fallback = await supabase.from('personal_loan_payments').select('id,personal_loan_id,account_id,amount_cents,payment_date,created_at').order('payment_date', { ascending: false }).order('created_at', { ascending: false });
     loanPayments = (fallback.data || []).map((payment) => ({ ...payment, entry_type: 'payment' })) as LoanPaymentRow[];
   }
   loanPayments ||= [];
@@ -97,7 +105,7 @@ async function getDashboard(authorization?: string | null) {
       const loan = loanById.get(payment.personal_loan_id)!;
       const incoming = payment.entry_type === 'advance' ? loan.direction === 'i_owe' : loan.direction === 'owed_to_me';
       const description = payment.entry_type === 'advance' ? (incoming ? `Borrowed more from ${loan.person_name}` : `Lent more to ${loan.person_name}`) : (incoming ? `Repayment received from ${loan.person_name}` : `Debt repayment to ${loan.person_name}`);
-      return { id: `debt-entry-${payment.id}`, type: incoming ? 'income' as const : 'expense' as const, description, amount_cents: payment.amount_cents, transaction_date: payment.payment_date, budget_month: null, from_account_id: incoming ? null : payment.account_id, to_account_id: incoming ? payment.account_id : null, category: 'Debt movement', payment_method: 'Personal IOU', created_at: payment.payment_date, debtMovement: true };
+      return { id: `debt-entry-${payment.id}`, type: incoming ? 'income' as const : 'expense' as const, description, amount_cents: payment.amount_cents, transaction_date: payment.payment_date, budget_month: null, from_account_id: incoming ? null : payment.account_id, to_account_id: incoming ? payment.account_id : null, category: 'Debt movement', payment_method: 'Personal IOU', created_at: payment.created_at, debtMovement: true };
     }),
   ];
   const cashFlowTransactions = [
@@ -107,8 +115,9 @@ async function getDashboard(authorization?: string | null) {
   return {
     name: String(user.user_metadata?.full_name || user.email?.split('@')[0] || 'Richard').split(' ')[0],
     accounts,
-    transactions: cashFlowTransactions.map((tx) => ({ ...tx, date: tx.transaction_date, budgetMonth: tx.budget_month || `${tx.transaction_date.slice(0, 7)}-01`, amount: tx.amount_cents / 100 })),
-    recurring: recurringRows.map((item) => ({ ...item, amount: item.amount_cents / 100, flowType: item.payment_method === 'Recurring Income' ? 'income' : 'expense' })),
+    transactions: cashFlowTransactions.map((tx) => ({ ...tx, date: tx.transaction_date, createdAt: tx.created_at, budgetMonth: tx.budget_month || `${tx.transaction_date.slice(0, 7)}-01`, amount: tx.amount_cents / 100 })),
+    recurring: recurringRows.map((item) => ({ ...item, amount: item.amount_cents / 100, sharedMembers: (item.shared_members || []).map((member) => ({ name: member.name, amount: member.amountCents / 100 })), flowType: item.payment_method === 'Recurring Income' ? 'income' : 'expense' })),
+    sharedContributions: sharedContributionQuery.error ? [] : (sharedContributionQuery.data as SharedContributionRow[]).map((item) => ({ id: item.id, recurringPaymentId: item.recurring_payment_id, participantName: item.participant_name, amount: item.amount_cents / 100, cycleMonth: item.cycle_month, receivedAccountId: item.received_account_id, receivedDate: item.received_date, createdAt: item.created_at })),
     creditCards: (cardRows || []).map((card) => ({
       id: card.id, name: card.name, bank: card.bank, creditLimit: card.credit_limit_cents / 100,
       openingUsed: card.opening_used_cents / 100, currentStatement: card.current_statement_cents / 100,
@@ -152,6 +161,11 @@ export async function POST(request: Request) {
     }
     const body = await request.json() as Record<string, string>;
     const budgetMonthFor = (date: string) => `${(body.budgetMonth || date).slice(0, 7)}-01`;
+    const sharedMembers = () => {
+      if (body.sharedPayment !== 'true') return [];
+      const amountCents = Math.round(decimalNumber(body.sharedShareAmount) * 100);
+      return String(body.sharedParticipants || '').split(',').map((name) => name.trim()).filter(Boolean).map((name) => ({ name, amountCents }));
+    };
     if (body.entity === 'accountUpdate') {
       const balanceCents = Math.round(decimalNumber(body.balance || 0) * 100);
       if (!body.id || !body.name?.trim() || !body.bank?.trim() || !body.accountType?.trim() || !Number.isFinite(balanceCents)) return Response.json({ error: 'Complete the account information.' }, { status: 400 });
@@ -193,7 +207,10 @@ export async function POST(request: Request) {
       const accountId = flowType === 'income' ? body.toAccountId : body.fromAccountId;
       if (!body.id || !body.description?.trim() || amountCents <= 0 || !body.date || !accountId) return Response.json({ error: 'Complete the recurring payment information.' }, { status: 400 });
       const nextDueDate = flowType === 'income' && (body.category === 'Salary' || /salary|sueldo/i.test(body.description)) ? monthEnd(body.date) : body.date;
-      const { error: updateError } = await supabase.from('recurring_payments').update({ name: body.description.trim(), amount_cents: amountCents, next_due_date: nextDueDate, pay_from_account_id: accountId, category: body.category || null, payment_method: flowType === 'income' ? 'Recurring Income' : body.paymentMethod || null }).eq('id', body.id);
+      const members = sharedMembers();
+      if (body.sharedPayment === 'true' && (!members.length || members.some((member) => member.amountCents <= 0))) return Response.json({ error: 'Add at least one participant with a valid contribution.' }, { status: 400 });
+      if (members.reduce((sum, member) => sum + member.amountCents, 0) > amountCents) return Response.json({ error: 'Participant contributions cannot exceed the total payment.' }, { status: 400 });
+      const { error: updateError } = await supabase.from('recurring_payments').update({ name: body.description.trim(), amount_cents: amountCents, next_due_date: nextDueDate, pay_from_account_id: accountId, category: body.category || null, payment_method: flowType === 'income' ? 'Recurring Income' : body.paymentMethod || null, shared_members: flowType === 'expense' ? members : [] }).eq('id', body.id);
       if (updateError) throw updateError;
       return Response.json(await getDashboard(authorization));
     }
@@ -319,6 +336,19 @@ export async function POST(request: Request) {
       if (updateError) throw updateError;
       return Response.json(await getDashboard(authorization), { status: 201 });
     }
+    if (body.entity === 'sharedContribution') {
+      const amountCents = Math.round(decimalNumber(body.amount) * 100);
+      if (!body.recurringPaymentId || !body.participantName?.trim() || !body.accountId || !body.date || amountCents <= 0) return Response.json({ error: 'Complete the shared contribution information.' }, { status: 400 });
+      const { data: payment, error: paymentError } = await supabase.from('recurring_payments').select('id,name,shared_members').eq('id', body.recurringPaymentId).single();
+      const member = ((payment?.shared_members || []) as SharedMember[]).find((item) => item.name === body.participantName);
+      if (paymentError || !payment || !member) return Response.json({ error: 'Shared participant not found.' }, { status: 404 });
+      const cycleMonth = `${(body.cycleMonth || body.date).slice(0, 7)}-01`;
+      const { data: contribution, error: contributionError } = await supabase.from('shared_payment_contributions').insert({ user_id: user.id, recurring_payment_id: payment.id, participant_name: member.name, amount_cents: amountCents, cycle_month: cycleMonth, received_account_id: body.accountId, received_date: body.date }).select('id').single();
+      if (contributionError) return Response.json({ error: contributionError.code === '23505' ? 'This contribution was already recorded for the selected month.' : contributionError.message }, { status: 400 });
+      const { error: transactionError } = await supabase.from('transactions').insert({ user_id: user.id, type: 'income', description: `${payment.name} share received from ${member.name}`, amount_cents: amountCents, transaction_date: body.date, budget_month: cycleMonth, from_account_id: null, to_account_id: body.accountId, category: 'Shared payment', payment_method: 'Transfer Received' });
+      if (transactionError) { await supabase.from('shared_payment_contributions').delete().eq('id', contribution.id); throw transactionError; }
+      return Response.json(await getDashboard(authorization), { status: 201 });
+    }
     if (body.entity === 'onboardingComplete') {
       const { error: preferenceError } = await supabase.from('user_preferences').upsert({ user_id: user.id, onboarding_completed: true });
       if (preferenceError && preferenceError.code !== 'PGRST205') throw preferenceError;
@@ -364,8 +394,11 @@ export async function POST(request: Request) {
           { user_id: user.id, type: 'expense', description: 'Comisión por transferencia interbancaria', amount_cents: transferFeeCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId, to_account_id: null, category: 'Bank fees', payment_method: 'Bank Transfer' },
         ]
       : [{ user_id: user.id, type, description: body.description.trim(), amount_cents: amountCents, transaction_date: body.date, budget_month: budgetMonthFor(body.date), from_account_id: body.fromAccountId || null, to_account_id: body.toAccountId || null, category: body.category || null, payment_method: body.paymentMethod || null }];
+    const members = sharedMembers();
+    if (type === 'recurring' && body.sharedPayment === 'true' && (!members.length || members.some((member) => member.amountCents <= 0))) return Response.json({ error: 'Add at least one participant with a valid contribution.' }, { status: 400 });
+    if (type === 'recurring' && members.reduce((sum, member) => sum + member.amountCents, 0) > amountCents) return Response.json({ error: 'Participant contributions cannot exceed the total payment.' }, { status: 400 });
     const result = type === 'recurring'
-      ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: recurringDate, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null })
+      ? await supabase.from('recurring_payments').insert({ user_id: user.id, name: body.description.trim(), amount_cents: amountCents, next_due_date: recurringDate, pay_from_account_id: recurringFlow === 'income' ? body.toAccountId : body.fromAccountId, category: body.category || null, payment_method: recurringFlow === 'income' ? 'Recurring Income' : body.paymentMethod || null, shared_members: recurringFlow === 'expense' ? members : [] })
       : await supabase.from('transactions').insert(transactionRows);
     if (result.error) throw result.error;
     return Response.json(await getDashboard(authorization), { status: 201 });
