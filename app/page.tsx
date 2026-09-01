@@ -126,6 +126,7 @@ export default function Home() {
   const [showAllActivity, setShowAllActivity] = useState(false);
   const [showBalanceDetail, setShowBalanceDetail] = useState(false);
   const [showFundingPlan, setShowFundingPlan] = useState(false);
+  const [selectedFundingMonth, setSelectedFundingMonth] = useState('');
   const [expandedFundingAccount, setExpandedFundingAccount] = useState<string | null>(null);
   const [expandedLoanId, setExpandedLoanId] = useState<string | null>(null);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
@@ -253,11 +254,11 @@ export default function Home() {
 
   const availableAccounts = data.accounts.filter((account) => account.name !== 'Produbanco Savings');
   const totalBalance = availableAccounts.reduce((sum, account) => sum + account.balance, 0);
-  const availableByBank = useMemo(() => {
+  const availableByBank = (() => {
     const grouped = new Map<string, number>();
     for (const account of availableAccounts) grouped.set(account.bank, (grouped.get(account.bank) || 0) + account.balance);
     return [...grouped.entries()].map(([bank, balance]) => ({ bank, balance }));
-  }, [availableAccounts]);
+  })();
   const activity = showAllActivity ? data.transactions : data.transactions.slice(0, 5);
   const recurringIncome = data.recurring.filter((item) => item.flowType === 'income');
   const recurringExpenses = data.recurring.filter((item) => item.flowType !== 'income');
@@ -286,11 +287,22 @@ export default function Home() {
     const estimatedPayment = estimateCardPayment(nextPaymentDate === currentStatementDueDate ? remainingStatement : 0, card.annualRate, purchasesInNextPayment);
     return { card, purchases: purchasesWithDueDate, payments, used, available: Math.max(card.creditLimit - used, 0), estimatedPayment, nextPaymentDate };
   }), [data.creditCards, paymentsByCard, purchasesByCard, today]);
-  const fundingPayments = [
+  const allFundingPayments = [
     ...allUpcoming.map((payment) => ({ ...payment, kind: 'recurring' as const })),
     ...data.bankLoans.filter((loan) => loan.outstandingBalance > 0 && loan.installment > 0 && bankLoanAccountId(loan)).map((loan) => ({ id: `bank-loan-${loan.id}`, sourceId: loan.id, name: loan.name, amount: Math.min(loan.installment, loan.outstandingBalance), next_due_date: loan.nextDueDate, pay_from_account_id: bankLoanAccountId(loan)!, payment_method: 'Automatic Debit', kind: 'bankLoan' as const })),
     ...cardSummaries.filter(({ card, estimatedPayment }) => estimatedPayment > 0 && card.payFromAccountId).map(({ card, estimatedPayment, nextPaymentDate }) => ({ id: `credit-card-${card.id}`, sourceId: card.id, name: `${card.name} payment`, amount: estimatedPayment, next_due_date: nextPaymentDate, pay_from_account_id: card.payFromAccountId!, payment_method: 'Bank Transfer', kind: 'creditCard' as const })),
   ];
+  const fundingMonthKeys = [...new Set(allFundingPayments.map((payment) => payment.next_due_date.slice(0, 7)))].sort();
+  const currentMonthKey = today.slice(0, 7);
+  const activeFundingMonth = selectedFundingMonth && fundingMonthKeys.includes(selectedFundingMonth)
+    ? selectedFundingMonth
+    : fundingMonthKeys.includes(currentMonthKey) ? currentMonthKey : fundingMonthKeys[0] || currentMonthKey;
+  const nextMonthDate = new Date(`${currentMonthKey}-01T12:00:00`);
+  nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
+  const nextMonthKey = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  const fundingMonthLabel = (month: string) => new Intl.DateTimeFormat(language === 'es' ? 'es-EC' : 'en-US', { month: 'long', year: 'numeric' }).format(new Date(`${month}-01T12:00:00`));
+  const fundingMonthStatus = (month: string) => month === currentMonthKey ? tr('This month', 'Este mes') : month === nextMonthKey ? tr('Next month', 'Próximo mes') : tr('Later', 'Más adelante');
+  const fundingPayments = allFundingPayments.filter((payment) => payment.next_due_date.startsWith(activeFundingMonth));
   const fundingByAccount = new Map<string, typeof fundingPayments>();
   for (const payment of fundingPayments) { const group = fundingByAccount.get(payment.pay_from_account_id); if (group) group.push(payment); else fundingByAccount.set(payment.pay_from_account_id, [payment]); }
   const fundingPlan = data.accounts.map((account) => {
@@ -314,16 +326,16 @@ export default function Home() {
     ...data.bankLoans.filter((loan) => loan.outstandingBalance > 0).map((loan) => ({ id: `loan-${loan.id}`, name: loan.name, date: loan.nextDueDate, amount: Math.min(loan.installment, loan.outstandingBalance), kind: 'Automatic Debit', direction: 'expense' as const })),
     ...cardSummaries.filter(({ estimatedPayment }) => estimatedPayment > 0).map(({ card, estimatedPayment, nextPaymentDate }) => ({ id: `card-${card.id}`, name: `${card.name} payment`, date: nextPaymentDate, amount: estimatedPayment, kind: 'Bank Transfer', direction: 'expense' as const })),
   ].sort((a, b) => a.date.localeCompare(b.date)).slice(0, 6);
-  const fundingMonth = fundingPlan[0]?.nextDue ? new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(`${fundingPlan[0].nextDue}T12:00:00`)) : 'Upcoming';
+  const fundingMonth = fundingMonthLabel(activeFundingMonth);
   const safetyId = data.accounts.find((account) => account.name === 'Pichincha Safety')?.id || '';
   const debitId = data.accounts.find((account) => account.name === 'Pichincha Debit')?.id || '';
   const savingsAccounts = data.accounts.filter((account) => account.name === 'Produbanco Savings');
   const savingsTotal = savingsAccounts.reduce((sum, account) => sum + account.balance, 0);
   const totalCreditLimit = data.creditCards.reduce((sum, card) => sum + card.creditLimit, 0);
   const totalCreditUsed = cardSummaries.reduce((sum, summary) => sum + summary.used, 0);
-  const overdueCount = fundingPayments.filter((payment) => payment.next_due_date < today).length;
+  const overdueCount = allFundingPayments.filter((payment) => payment.next_due_date < today).length;
   const financialHealth = calculateFinancialHealth({ available: totalBalance, expectedIncome: expectedIncomeTotal, commitments: outstanding, savings: savingsTotal, creditUsed: totalCreditUsed, creditLimit: totalCreditLimit, overdueCount });
-  const nextDueDate = fundingPayments.map((payment) => payment.next_due_date).sort()[0] || null;
+  const nextDueDate = allFundingPayments.map((payment) => payment.next_due_date).sort()[0] || null;
   const nextDueDays = nextDueDate ? Math.ceil((new Date(`${nextDueDate}T12:00:00`).getTime() - new Date(`${today}T12:00:00`).getTime()) / 86_400_000) : null;
   const notifications = buildFinanceNotifications({ fundingNeeded: totalFundingNeeded, creditUtilization: totalCreditLimit ? totalCreditUsed / totalCreditLimit * 100 : 0, nextDueDays, potentialSavings: Math.max(projectedBalance, 0) });
   const debtPaidThisMonth = data.personalLoanPayments.filter((payment) => payment.entryType === 'payment' && payment.date.startsWith(today.slice(0, 7))).reduce((sum, payment) => sum + payment.amount, 0) + data.cardPayments.filter((payment) => payment.date.startsWith(today.slice(0, 7))).reduce((sum, payment) => sum + payment.amount, 0);
@@ -802,15 +814,17 @@ export default function Home() {
 
         {showFundingPlan && (
           <div className="modal-backdrop" role="presentation" onMouseDown={() => { setShowFundingPlan(false); setExpandedFundingAccount(null); }}>
-            <section className="modal-card funding-plan-modal" role="dialog" aria-modal="true" aria-labelledby="funding-title" onMouseDown={(event) => event.stopPropagation()}>
-              <div className="modal-heading"><div><p className="eyebrow">ACCOUNT FUNDING</p><h2 id="funding-title">What you need, and when</h2></div><button onClick={() => { setShowFundingPlan(false); setExpandedFundingAccount(null); }} aria-label="Close">×</button></div>
-              <div className="funding-summary"><span><small>Scheduled</small><strong>{money(outstanding)}</strong></span><span><small>Ready</small><strong>{money(totalReadyForPayments)}</strong></span><span><small>Still needed</small><strong>{money(totalFundingNeeded)}</strong></span></div>
+            <section className={`modal-card funding-plan-modal ${activeFundingMonth === nextMonthKey ? 'next-month' : ''}`} role="dialog" aria-modal="true" aria-labelledby="funding-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className="modal-heading"><div><p className="eyebrow">{tr('ACCOUNT FUNDING', 'FONDOS POR CUENTA')}</p><h2 id="funding-title">{tr('What you need, and when', 'Lo que necesitas y cuándo')}</h2></div><button onClick={() => { setShowFundingPlan(false); setExpandedFundingAccount(null); }} aria-label={tr('Close', 'Cerrar')}>×</button></div>
+              <div className="funding-month-switcher" aria-label={tr('Funding month', 'Mes de planificación')}>{fundingMonthKeys.map((month) => <button className={month === activeFundingMonth ? 'active' : ''} type="button" key={month} onClick={() => { setSelectedFundingMonth(month); setExpandedFundingAccount(null); }}><strong>{fundingMonthLabel(month)}</strong><small>{fundingMonthStatus(month)} · {money(allFundingPayments.filter((payment) => payment.next_due_date.startsWith(month)).reduce((sum, payment) => sum + payment.amount, 0))}</small></button>)}</div>
+              <div className="funding-period-heading"><span><strong>{fundingMonthLabel(activeFundingMonth)}</strong><small>{fundingMonthStatus(activeFundingMonth)}</small></span><b>{fundingPayments.length} {tr(fundingPayments.length === 1 ? 'scheduled payment' : 'scheduled payments', fundingPayments.length === 1 ? 'pago programado' : 'pagos programados')}</b></div>
+              <div className="funding-summary"><span><small>{tr('Scheduled', 'Programado')}</small><strong>{money(outstanding)}</strong></span><span><small>{tr('Ready', 'Disponible')}</small><strong>{money(totalReadyForPayments)}</strong></span><span><small>{tr('Still needed', 'Todavía falta')}</small><strong>{money(totalFundingNeeded)}</strong></span></div>
               <div className="funding-account-list">{fundingPlan.map((item) => <article className="funding-account-row" key={item.account.id}>
                 <button className="funding-account-toggle" type="button" aria-expanded={expandedFundingAccount === item.account.id} onClick={() => setExpandedFundingAccount((current) => current === item.account.id ? null : item.account.id)}><span className="funding-account-icon">{item.account.name.split(' ')[1]?.[0] || item.account.name[0]}</span><span><strong>{item.account.name}</strong><small>{item.paymentCount} {item.paymentCount === 1 ? 'payment' : 'payments'} · due from {item.nextDue ? shortDate(item.nextDue) : '—'}</small></span><i>⌄</i></button>
                 <div className="funding-account-values"><span><small>Balance</small><strong>{money(item.account.balance)}</strong></span><span><small>Required</small><strong>{money(item.required)}</strong></span><span className={item.needed > 0 ? 'needs-funding' : 'funded'}><small>{item.needed > 0 ? 'Add' : 'Covered'}</small><strong>{item.needed > 0 ? money(item.needed) : '✓'}</strong></span></div>
                 <div className="funding-account-track"><i style={{ width: `${Math.min(100, item.ready / Math.max(item.required, 1) * 100)}%` }} /></div>
-                {expandedFundingAccount === item.account.id && <div className="funding-payment-details">{item.payments.map((payment) => <div key={payment.id}><span><strong>{payment.name}</strong><small>{shortDate(payment.next_due_date)} · {payment.payment_method || 'Bank Transfer'}</small></span><span className="funding-payment-action"><strong>−{money(payment.amount)}</strong><button type="button" disabled={payingRecurringId === payment.id} onClick={() => markFundingPaymentPaid(payment)}>{payingRecurringId === payment.id ? 'Saving…' : 'Mark paid'}</button></span></div>)}</div>}
-              </article>)}</div>
+                {expandedFundingAccount === item.account.id && <div className="funding-payment-details">{item.payments.map((payment) => <div key={payment.id}><span><strong>{payment.name}</strong><small>{shortDate(payment.next_due_date)} · {payment.payment_method || 'Bank Transfer'}</small></span><span className="funding-payment-action"><strong>−{money(payment.amount)}</strong><button type="button" disabled={payingRecurringId === payment.id} onClick={() => markFundingPaymentPaid(payment)}>{payingRecurringId === payment.id ? tr('Saving…', 'Guardando…') : tr('Mark paid', 'Marcar pagado')}</button></span></div>)}</div>}
+              </article>)}{fundingPlan.length === 0 && <div className="empty-state"><strong>{tr('No payments scheduled for this month', 'No hay pagos programados para este mes')}</strong></div>}</div>
             </section>
           </div>
         )}

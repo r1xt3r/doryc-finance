@@ -216,6 +216,22 @@ h1,h2,p { margin-top:0; } h1 { margin-bottom:0; font-size:clamp(27px,3vw,42px); 
 .modal-heading { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:22px; gap:16px; } .modal-heading>button { display:grid; place-items:center; flex:0 0 40px; width:40px; height:40px; padding:0; border:1px solid #52644f; border-radius:12px; background:#202a21; color:var(--ink); cursor:pointer; font-size:25px; line-height:1; font-family:Arial,sans-serif; transition:background .2s ease,border-color .2s ease,color .2s ease,transform .2s ease; }.modal-heading>button:hover { border-color:var(--mint); background:#283628; color:var(--mint); transform:translateY(-1px); }.modal-heading>button:focus-visible { outline:2px solid var(--mint); outline-offset:2px; }
 .modal-card form { display:grid; gap:15px; } .modal-card label { display:grid; gap:7px; } .modal-card label>span { color:#656b62; font-size:10px; font-weight:750; letter-spacing:.05em; text-transform:uppercase; }
 .funding-plan-modal { width:min(680px,100%); }
+.funding-month-switcher { display:flex; gap:8px; margin:0 0 14px; padding-bottom:4px; overflow-x:auto; scrollbar-width:thin; }
+.funding-month-switcher button { flex:0 0 auto; display:grid; gap:3px; min-width:145px; padding:10px 12px; border:1px solid var(--line); border-radius:11px; background:#0e120f; color:var(--ink); text-align:left; cursor:pointer; transition:border-color .2s ease,background .2s ease,transform .2s ease; }
+.funding-month-switcher button:hover { transform:translateY(-1px); border-color:#485746; }
+.funding-month-switcher button.active { border-color:#668553; background:#192219; box-shadow:inset 0 0 0 1px rgba(189,244,119,.07); }
+.funding-month-switcher strong { text-transform:capitalize; font-size:10px; }
+.funding-month-switcher small { color:var(--muted); font-size:8px; }
+.funding-period-heading { display:flex; align-items:end; justify-content:space-between; gap:12px; margin:2px 0 10px; padding:0 2px; }
+.funding-period-heading>span { display:grid; gap:3px; }
+.funding-period-heading strong { text-transform:capitalize; font-size:14px; }
+.funding-period-heading small { color:var(--mint); font-size:8px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.funding-period-heading>b { color:var(--muted); font-size:8px; font-weight:650; }
+.funding-plan-modal.next-month .funding-period-heading small { color:#b9a8ff; }
+.funding-plan-modal.next-month .funding-month-switcher button.active { border-color:#655b91; background:rgba(159,142,231,.09); box-shadow:inset 3px 0 0 #9f8ee7; }
+.funding-plan-modal.next-month .funding-summary>span { border-color:#3b3652; background:linear-gradient(145deg,rgba(159,142,231,.075),#0e120f 58%); }
+.funding-plan-modal.next-month .funding-account-row { border-color:#373349; background:linear-gradient(145deg,rgba(159,142,231,.045),#101511 48%); }
+.funding-plan-modal.next-month .funding-payment-details small { color:#a99ed2; }
 .funding-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-bottom:20px; }
 .funding-summary>span { display:grid; gap:4px; padding:13px; border:1px solid var(--line); border-radius:12px; background:#0e120f; }
 .funding-summary small,.funding-account-values small { color:var(--muted); font-size:9px; }
@@ -283,6 +299,7 @@ h1,h2,p { margin-top:0; } h1 { margin-bottom:0; font-size:clamp(27px,3vw,42px); 
 @media (max-width:900px) { .app-shell { display:block; } .sidebar { inset:auto 0 0; width:100%; height:72px; padding:8px 10px; display:block; border-top:1px solid var(--line); background:rgba(17,21,17,.96); backdrop-filter:blur(16px); }.sidebar-brand,.profile-chip { display:none; }.sidebar nav { height:100%; margin:0; grid-template-columns:repeat(6,1fr); gap:3px; }.dashboard-nav button { display:flex; flex-direction:column; justify-content:center; gap:3px; padding:4px 2px; text-align:center; }.dashboard-nav i { width:27px; height:27px; }.dashboard-nav span { font-size:7px; }.dashboard-nav b { position:absolute; top:1px; right:12%; min-width:15px; height:15px; }.dashboard { padding:30px 20px 105px; } .hero-grid { grid-template-columns:1fr; } .overview-links { grid-template-columns:1fr 1fr; }.quick-actions { grid-template-columns:1fr 1fr; } .content-grid,.activity-grid,.savings-grid,.credit-card-grid,.loan-grid { grid-template-columns:1fr; } .onboarding-steps,.card-flow-stats { grid-template-columns:1fr; } .toast { right:15px; bottom:88px; } .auth-shell { grid-template-columns:1fr; background:var(--paper); } .auth-brand { min-height:300px; padding:80px 28px 42px; } .auth-brand>.brand-mark { top:24px; left:28px; } .auth-brand h1 { font-size:55px; } .auth-orbit { width:260px; right:-100px; bottom:-140px; } .auth-panel { border-radius:28px 28px 0 0; padding:38px 24px 60px; } }
 @media (max-width:900px) { .overview-intelligence { grid-template-columns:1fr; } }
 @media (max-width:520px) { .dashboard { padding-inline:15px; } .topbar { margin-bottom:22px; } .balance-card,.funding-card,.panel { border-radius:19px; } .balance-card,.funding-card { min-height:245px; } .quick-actions button { grid-template-columns:32px 1fr; padding:13px; } .quick-actions button>span { width:32px; } }
+@media (max-width:520px) { .funding-month-switcher button { min-width:132px; }.funding-period-heading { align-items:flex-start; flex-direction:column; }.funding-summary { gap:6px; }.funding-summary>span { padding:10px 8px; }.funding-summary strong { font-size:14px; }.funding-payment-details { padding-left:0; } }
 @media (max-width:900px) { .loan-grid article { grid-template-columns:38px 1fr; }.loan-grid article>div:nth-child(3),.loan-history { grid-column:1/-1; min-width:0; justify-items:start; }.loan-actions { flex-wrap:wrap; } }
 @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } [data-reveal] { opacity:1; } *,*::before,*::after { animation-duration:.01ms!important; transition-duration:.01ms!important; } }
 
