@@ -253,6 +253,7 @@ export async function POST(request: Request) {
       if (!body.creditCardId || !body.fromAccountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the card payment.' }, { status: 400 });
       const { error: atomicError } = await supabase.rpc('doryc_pay_credit_card', { p_card_id: body.creditCardId, p_account_id: body.fromAccountId, p_amount_cents: amountCents, p_payment_date: body.date, p_note: body.note || null });
       if (!atomicError) return Response.json(await getDashboard(authorization), { status: 201 });
+      if (/insufficient funds/i.test(atomicError.message)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       if (atomicError.code !== 'PGRST202') throw atomicError;
       if (!await hasFunds(body.fromAccountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { error: paymentError } = await supabase.from('credit_card_payments').insert({ user_id: user.id, credit_card_id: body.creditCardId, from_account_id: body.fromAccountId, amount_cents: amountCents, payment_date: body.date, note: body.note || null });
@@ -274,6 +275,7 @@ export async function POST(request: Request) {
       if (!body.bankLoanId || !body.fromAccountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the bank loan payment.' }, { status: 400 });
       const { error: atomicError } = await supabase.rpc('doryc_pay_bank_loan', { p_loan_id: body.bankLoanId, p_account_id: body.fromAccountId, p_amount_cents: amountCents, p_payment_date: body.date });
       if (!atomicError) return Response.json(await getDashboard(authorization), { status: 201 });
+      if (/insufficient funds/i.test(atomicError.message)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       if (atomicError.code !== 'PGRST202') throw atomicError;
       if (!await hasFunds(body.fromAccountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { data: loan, error: loanError } = await supabase.from('bank_loans').select('name,outstanding_balance_cents,installment_cents,paid_installments,total_installments,next_due_date').eq('id', body.bankLoanId).single();
@@ -292,6 +294,7 @@ export async function POST(request: Request) {
       if (!body.personalLoanId || !body.accountId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the loan payment.' }, { status: 400 });
       const { error: atomicError } = await supabase.rpc('doryc_pay_personal_loan', { p_loan_id: body.personalLoanId, p_account_id: body.accountId, p_amount_cents: amountCents, p_payment_date: body.date });
       if (!atomicError) return Response.json(await getDashboard(authorization), { status: 201 });
+      if (/insufficient funds/i.test(atomicError.message)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       if (atomicError.code !== 'PGRST202') throw atomicError;
       const { data: loan, error: loanError } = await supabase.from('personal_loans').select('amount_cents,paid_cents').eq('id', body.personalLoanId).single();
       if (loanError || !loan || loan.paid_cents + amountCents > loan.amount_cents) return Response.json({ error: 'Payment exceeds the remaining amount.' }, { status: 400 });
@@ -306,9 +309,10 @@ export async function POST(request: Request) {
     if (body.entity === 'personalLoanIncrease') {
       const amountCents = Math.round(decimalNumber(body.amount) * 100);
       if (!body.personalLoanId || amountCents <= 0 || !body.date) return Response.json({ error: 'Complete the additional debt information.' }, { status: 400 });
-      const { data: loan, error: loanError } = await supabase.from('personal_loans').select('amount_cents,account_id').eq('id', body.personalLoanId).single();
+      const { data: loan, error: loanError } = await supabase.from('personal_loans').select('amount_cents,account_id,direction').eq('id', body.personalLoanId).single();
       const accountId = body.accountId || loan?.account_id;
       if (loanError || !loan || !accountId) return Response.json({ error: 'Select the account involved.' }, { status: 400 });
+      if (loan.direction === 'owed_to_me' && !await hasFunds(accountId, amountCents)) return Response.json({ error: 'Insufficient funds in the selected account.' }, { status: 400 });
       const { error: entryError } = await supabase.from('personal_loan_payments').insert({ user_id: user.id, personal_loan_id: body.personalLoanId, account_id: accountId, amount_cents: amountCents, payment_date: body.date, entry_type: 'advance' });
       if (entryError) throw entryError;
       const { error: updateError } = await supabase.from('personal_loans').update({ amount_cents: loan.amount_cents + amountCents, status: 'open' }).eq('id', body.personalLoanId);
