@@ -123,7 +123,8 @@ export default function Home() {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [error, setError] = useState('');
   const [showAllUpcoming, setShowAllUpcoming] = useState(false);
-  const [showAllActivity, setShowAllActivity] = useState(false);
+  const [activityStartDate, setActivityStartDate] = useState(today);
+  const [activityEndDate, setActivityEndDate] = useState(today);
   const [showCardPaymentHistory, setShowCardPaymentHistory] = useState(false);
   const [showBalanceDetail, setShowBalanceDetail] = useState(false);
   const [showFundingPlan, setShowFundingPlan] = useState(false);
@@ -260,7 +261,7 @@ export default function Home() {
     for (const account of availableAccounts) grouped.set(account.bank, (grouped.get(account.bank) || 0) + account.balance);
     return [...grouped.entries()].map(([bank, balance]) => ({ bank, balance }));
   })();
-  const activity = showAllActivity ? data.transactions : data.transactions.slice(0, 5);
+  const activity = data.transactions.filter((item) => item.date >= activityStartDate && item.date <= activityEndDate);
   const recurringIncome = data.recurring.filter((item) => item.flowType === 'income');
   const recurringExpenses = data.recurring.filter((item) => item.flowType !== 'income');
   const expectedIncome = recurringIncome.filter((item) => !item.paid_this_cycle || item.next_due_date <= today);
@@ -772,7 +773,7 @@ export default function Home() {
         </section>
 
         <section className="activity-panel panel" id="activity" data-reveal hidden={activeView !== 'activity'}>
-          <div className="section-heading"><div><p className="eyebrow">{tr('AUGUST', 'AGOSTO')}</p><h2>{tr('Cash flow', 'Flujo de caja')}</h2></div><div className="section-actions"><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Expense'); }}>+ {tr('Expense', 'Gasto')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Income'); }}>+ {tr('Income', 'Ingreso')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Transfer'); }}>+ {tr('Transfer', 'Transferencia')}</button></div></div>
+          <div className="section-heading"><div><p className="eyebrow">{currentTime.toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', { month: 'long' }).toUpperCase()}</p><h2>{tr('Cash flow', 'Flujo de caja')}</h2></div><div className="section-actions"><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Expense'); }}>+ {tr('Expense', 'Gasto')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Income'); }}>+ {tr('Income', 'Ingreso')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Transfer'); }}>+ {tr('Transfer', 'Transferencia')}</button></div></div>
           <div className="activity-grid">
             <div className="chart-wrap" aria-label="Monthly spending by category">
               <div className="chart-total"><span>Spent this month</span><strong>{money(data.spent)}</strong></div>
@@ -787,13 +788,12 @@ export default function Home() {
                 <div className="chart-insight"><span>↗</span><p><strong>{categorySpending[0].category} is your largest category.</strong><small>It represents {((categorySpending[0].amount / data.spent) * 100).toFixed(0)}% of this month&apos;s spending.</small></p></div>
               </> : <div className="chart-empty"><strong>No expenses yet</strong><small>Your category chart will appear after your first expense.</small></div>}
             </div>
-            <div className="activity-list">
+            <div className="activity-list"><div className="activity-date-filter"><span><small>{tr('FROM', 'DESDE')}</small><input type="date" value={activityStartDate} max={activityEndDate} onChange={(event) => { const value = event.target.value; setActivityStartDate(value); if (value > activityEndDate) setActivityEndDate(value); }}/></span><span><small>{tr('TO', 'HASTA')}</small><input type="date" value={activityEndDate} min={activityStartDate} onChange={(event) => { const value = event.target.value; setActivityEndDate(value); if (value < activityStartDate) setActivityStartDate(value); }}/></span><button type="button" onClick={() => { setActivityStartDate(today); setActivityEndDate(today); }}>{tr('Today', 'Hoy')}</button><b>{activity.length} {tr(activity.length === 1 ? 'movement' : 'movements', activity.length === 1 ? 'movimiento' : 'movimientos')}</b></div>
               {activity.length ? activity.map((item) => {
                 const account = item.type === 'income' ? accountMap.get(item.to_account_id || '') : accountMap.get(item.from_account_id || '');
                 const prefix = item.type === 'income' ? '+' : item.type === 'transfer' ? '⇄ ' : '−';
-                return <div className={`activity-row ${item.debtMovement ? 'debt-movement-row' : ''}`} key={item.id}><span className="activity-bullet">{item.debtMovement ? '↔' : item.description[0]}</span><span><strong>{transactionDescription(item.description)}</strong><small>{item.type === 'transfer' ? `${accountMap.get(item.from_account_id || '')} → ${accountMap.get(item.to_account_id || '')}` : `${transactionCategory(item.category) || item.type} · ${account}`}</small></span><strong className={item.type}>{prefix}{money(item.amount)}</strong>{!item.debtMovement && <span className="row-actions"><button className="icon-action" type="button" aria-label={tr(`Edit ${item.description}`, `Editar ${item.description}`)} title={tr('Edit', 'Editar')} onClick={() => { setEditingTransaction(item); setActiveAction((item.type[0].toUpperCase() + item.type.slice(1)) as ActionType); }}><PencilIcon /></button><button className="danger-mini icon-action" type="button" aria-label={tr(`Delete ${item.description}`, `Eliminar ${item.description}`)} title={tr('Delete', 'Eliminar')} onClick={() => deleteTransaction(item)}><TrashIcon /></button></span>}</div>;
-              }) : <div className="empty-state"><strong>No activity yet</strong><small>Your first expense, income or transfer will appear here.</small></div>}
-              {data.transactions.length > 5 && <button className="show-all-button" type="button" onClick={() => setShowAllActivity((current) => !current)}>{showAllActivity ? 'Show recent only' : `View all ${data.transactions.length} movements`}</button>}
+                return <div className={`activity-row ${item.debtMovement ? 'debt-movement-row' : ''}`} key={item.id}><span className="activity-bullet">{item.debtMovement ? '↔' : item.description[0]}</span><span><strong>{transactionDescription(item.description)}</strong><small>{shortDate(item.date)} · {item.type === 'transfer' ? `${accountMap.get(item.from_account_id || '')} → ${accountMap.get(item.to_account_id || '')}` : `${transactionCategory(item.category) || item.type} · ${account}`}</small></span><strong className={item.type}>{prefix}{money(item.amount)}</strong>{!item.debtMovement && <span className="row-actions"><button className="icon-action" type="button" aria-label={tr(`Edit ${item.description}`, `Editar ${item.description}`)} title={tr('Edit', 'Editar')} onClick={() => { setEditingTransaction(item); setActiveAction((item.type[0].toUpperCase() + item.type.slice(1)) as ActionType); }}><PencilIcon /></button><button className="danger-mini icon-action" type="button" aria-label={tr(`Delete ${item.description}`, `Eliminar ${item.description}`)} title={tr('Delete', 'Eliminar')} onClick={() => deleteTransaction(item)}><TrashIcon /></button></span>}</div>;
+              }) : <div className="empty-state"><strong>{tr('No movements in this period', 'No hay movimientos en este período')}</strong><small>{activityStartDate === today && activityEndDate === today ? tr('Movements recorded today will appear here.', 'Los movimientos registrados hoy aparecerán aquí.') : tr('Try another date range.', 'Prueba con otro rango de fechas.')}</small></div>}
             </div>
           </div>
         </section>
