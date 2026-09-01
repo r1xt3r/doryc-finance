@@ -1,23 +1,5 @@
 create extension if not exists pgcrypto;
 
-create table if not exists public.notification_preferences (
-  user_id uuid primary key references auth.users(id) on delete cascade,
-  payment_reminders boolean not null default false,
-  monthly_expense_report boolean not null default false,
-  unsubscribed_at timestamptz,
-  updated_at timestamptz not null default now()
-);
-
-create table if not exists public.email_deliveries (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null references auth.users(id) on delete cascade,
-  email_type text not null check (email_type in ('payment_reminder', 'monthly_expense_report')),
-  delivery_key text not null,
-  provider_id text,
-  sent_at timestamptz not null default now(),
-  unique(user_id, email_type, delivery_key)
-);
-
 create table if not exists public.accounts (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -185,8 +167,6 @@ alter table public.credit_card_payments enable row level security;
 alter table public.personal_loan_payments enable row level security;
 alter table public.user_preferences enable row level security;
 alter table public.bank_loans enable row level security;
-alter table public.notification_preferences enable row level security;
-alter table public.email_deliveries enable row level security;
 
 drop policy if exists "Users manage own accounts" on public.accounts;
 create policy "Users manage own accounts" on public.accounts
@@ -225,10 +205,6 @@ drop policy if exists "Users manage own preferences" on public.user_preferences;
 create policy "Users manage own preferences" on public.user_preferences for all to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 drop policy if exists "Users manage own bank loans" on public.bank_loans;
 create policy "Users manage own bank loans" on public.bank_loans for all to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
-drop policy if exists "Users manage notification preferences" on public.notification_preferences;
-create policy "Users manage notification preferences" on public.notification_preferences for all to authenticated using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
-drop policy if exists "Users view own email deliveries" on public.email_deliveries;
-create policy "Users view own email deliveries" on public.email_deliveries for select to authenticated using ((select auth.uid()) = user_id);
 
 grant usage on schema public to authenticated;
 grant select, insert, update, delete on public.accounts to authenticated;
@@ -241,5 +217,3 @@ grant select, insert, update, delete on public.credit_card_payments to authentic
 grant select, insert, update, delete on public.personal_loan_payments to authenticated;
 grant select, insert, update, delete on public.user_preferences to authenticated;
 grant select, insert, update, delete on public.bank_loans to authenticated;
-grant select, insert, update on public.notification_preferences to authenticated;
-grant select on public.email_deliveries to authenticated;
