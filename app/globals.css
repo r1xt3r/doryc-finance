@@ -407,6 +407,17 @@ body { background:
   .expected-income-list>div { grid-template-columns:34px minmax(0,1fr) auto; }.expected-income-list>div>strong { grid-column:3; grid-row:1; }.income-actions { grid-column:2/4; justify-content:flex-end; }
 }
 
+.notification-settings { grid-column:1/-1; }
+.notification-options { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:18px; }
+.notification-options label { display:grid; grid-template-columns:20px 1fr; align-items:start; gap:10px; padding:14px; border:1px solid var(--line); border-radius:12px; background:#0e120f; cursor:pointer; }
+.notification-options input { width:18px; height:18px; padding:0; accent-color:var(--mint); }
+.notification-options label>span { display:grid; gap:4px; }
+.notification-options strong { font-size:11px; }
+.notification-options small { color:var(--muted); font-size:9px; line-height:1.5; }
+.unsubscribe-button { width:100%; margin-top:9px; padding:10px; border:0; background:transparent; color:#ff9a91; font-size:9px; font-weight:750; cursor:pointer; }
+.unsubscribe-button:disabled,.secondary-button:disabled { cursor:wait; opacity:.5; }
+@media(max-width:700px) { .notification-settings { grid-column:auto; }.notification-options { grid-template-columns:1fr; } }
+
 @media (max-width:350px) {
   .dashboard-nav span { font-size:6.5px; }
   .dashboard-nav i { width:25px; height:25px; }
