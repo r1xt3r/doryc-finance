@@ -598,19 +598,21 @@ html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-ac
   .modal-card {
     width:100%;
     max-height:calc(100dvh - max(28px,env(safe-area-inset-top) + env(safe-area-inset-bottom)));
-    padding:22px 18px;
+    padding:20px 18px;
     border-radius:22px;
     overscroll-behavior:contain;
   }
-  .modal-heading { margin-bottom:20px; gap:10px; }
+  .modal-heading { margin-bottom:16px; gap:10px; }
   .modal-heading>div { min-width:0; }
-  .modal-heading h2 { font-size:clamp(24px,7.5vw,32px); line-height:1.05; overflow-wrap:anywhere; }
-  .modal-heading>button { flex-basis:42px; width:42px; height:42px; }
-  .modal-card form { gap:14px; }
-  .field-row { grid-template-columns:minmax(0,1fr); gap:14px; }
+  .modal-heading h2 { font-size:clamp(23px,6.8vw,29px); line-height:1.04; overflow-wrap:anywhere; }
+  .modal-heading>button { flex-basis:40px; width:40px; height:40px; }
+  .modal-card form { gap:11px; }
+  .field-row { grid-template-columns:minmax(0,.82fr) minmax(0,1.18fr); gap:9px; }
   .modal-card label,.modal-card input,.modal-card select { min-width:0; max-width:100%; }
-  .modal-card input,.modal-card select { min-height:50px; font-size:16px; }
-  .save-button { min-height:52px; font-size:16px; }
+  .modal-card label { gap:5px; }
+  .modal-card input,.modal-card select { min-height:46px; padding:11px 12px; font-size:16px; }
+  .modal-card input[type="date"] { display:block; width:100%; min-width:0; -webkit-appearance:none; appearance:none; text-align:center; }
+  .save-button { min-height:48px; font-size:15px; }
   .demo-note { padding-inline:5px; line-height:1.45; }
   .loan-actions {
     grid-template-columns:minmax(0,1fr) 40px 40px;
@@ -623,6 +625,35 @@ html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-ac
   .loan-actions>button:nth-child(2) { grid-area:payment; min-height:42px; font-size:10px; font-weight:800; }
   .loan-actions>.history-toggle { grid-area:history; width:40px; height:40px; justify-self:end; }
   .loan-actions>.loan-delete { grid-area:delete; width:40px!important; height:40px!important; justify-self:end; }
+  .loans-panel {
+    margin-inline:-8px;
+    padding:18px 12px;
+  }
+  .loans-panel .section-heading { align-items:flex-start; gap:10px; }
+  .loans-panel .section-heading h2 { font-size:clamp(21px,6vw,27px); }
+  .loan-grid article { padding:15px 12px; }
+  .activity-date-filter {
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:8px;
+    padding:10px;
+    border-radius:14px;
+    background:rgba(14,19,15,.86);
+  }
+  .activity-date-filter>span { min-width:0; }
+  .activity-date-filter input {
+    display:block;
+    width:100%;
+    min-width:0;
+    height:42px;
+    padding:0 8px;
+    -webkit-appearance:none;
+    appearance:none;
+    text-align:center;
+    font-size:10px;
+  }
+  .activity-filter-actions { grid-column:1/-1; display:grid!important; grid-template-columns:1fr 1fr; }
+  .activity-filter-actions button { width:100%; height:40px; }
+  .activity-date-filter>b { padding:1px 2px 0; }
 }
 .settings-header-actions { display:flex; align-items:center; gap:14px; }.settings-header-actions>a { color:var(--muted); font-size:10px; text-decoration:none; }
 .standalone-auth-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }.standalone-auth-top .brand-mark { margin-bottom:0!important; }
