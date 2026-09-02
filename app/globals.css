@@ -589,5 +589,40 @@ html[data-theme="warm"] .overview-links button,html[data-theme="warm"] .quick-ac
   .card-flow-stats,.bank-loan-values { grid-template-columns:1fr; }
   .bank-loan-values span:nth-child(2),.bank-loan-values span:last-child { justify-self:start; text-align:left; }
 }
+@media (max-width:600px) {
+  .modal-backdrop {
+    align-items:center;
+    padding:max(14px,env(safe-area-inset-top)) 12px max(14px,env(safe-area-inset-bottom));
+    overflow:hidden;
+  }
+  .modal-card {
+    width:100%;
+    max-height:calc(100dvh - max(28px,env(safe-area-inset-top) + env(safe-area-inset-bottom)));
+    padding:22px 18px;
+    border-radius:22px;
+    overscroll-behavior:contain;
+  }
+  .modal-heading { margin-bottom:20px; gap:10px; }
+  .modal-heading>div { min-width:0; }
+  .modal-heading h2 { font-size:clamp(24px,7.5vw,32px); line-height:1.05; overflow-wrap:anywhere; }
+  .modal-heading>button { flex-basis:42px; width:42px; height:42px; }
+  .modal-card form { gap:14px; }
+  .field-row { grid-template-columns:minmax(0,1fr); gap:14px; }
+  .modal-card label,.modal-card input,.modal-card select { min-width:0; max-width:100%; }
+  .modal-card input,.modal-card select { min-height:50px; font-size:16px; }
+  .save-button { min-height:52px; font-size:16px; }
+  .demo-note { padding-inline:5px; line-height:1.45; }
+  .loan-actions {
+    grid-template-columns:minmax(0,1fr) 40px 40px;
+    grid-template-areas:
+      "payment payment payment"
+      "add history delete";
+    gap:8px;
+  }
+  .loan-actions>button:nth-child(1) { grid-area:add; min-height:40px; font-size:9px; }
+  .loan-actions>button:nth-child(2) { grid-area:payment; min-height:42px; font-size:10px; font-weight:800; }
+  .loan-actions>.history-toggle { grid-area:history; width:40px; height:40px; justify-self:end; }
+  .loan-actions>.loan-delete { grid-area:delete; width:40px!important; height:40px!important; justify-self:end; }
+}
 .settings-header-actions { display:flex; align-items:center; gap:14px; }.settings-header-actions>a { color:var(--muted); font-size:10px; text-decoration:none; }
 .standalone-auth-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:24px; }.standalone-auth-top .brand-mark { margin-bottom:0!important; }
