@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 
-export type ExperiencePreferences = { theme: 'forest' | 'midnight' | 'warm'; motion: 'full' | 'reduced' };
+export type ExperiencePreferences = { theme: 'forest' | 'midnight' | 'obsidian'; motion: 'full' | 'reduced' };
 const defaults: ExperiencePreferences = { theme: 'forest', motion: 'full' };
 
 export function useExperiencePreferences() {
@@ -9,7 +9,8 @@ export function useExperiencePreferences() {
     if (typeof window === 'undefined') return defaults;
     try {
       const saved = JSON.parse(window.localStorage.getItem('doryc_experience') || '{}');
-      return { ...defaults, ...saved };
+      const savedTheme = saved.theme === 'warm' ? 'obsidian' : saved.theme;
+      return { ...defaults, ...saved, theme: ['forest', 'midnight', 'obsidian'].includes(savedTheme) ? savedTheme : defaults.theme };
     } catch { /* Keep safe defaults. */ }
     return defaults;
   });

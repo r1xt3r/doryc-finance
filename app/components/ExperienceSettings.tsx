@@ -35,7 +35,7 @@ export default function ExperienceSettings({ value, language, onChange, open, on
   const themes: Array<{ id: ExperiencePreferences['theme']; name: string; colors: string[] }> = [
     { id: 'forest', name: es ? 'Bosque' : 'Forest', colors: ['#bdf477', '#182019'] },
     { id: 'midnight', name: es ? 'Medianoche' : 'Midnight', colors: ['#80baff', '#101722'] },
-    { id: 'warm', name: es ? 'Cálido' : 'Warm', colors: ['#f4c477', '#211b15'] },
+    { id: 'obsidian', name: es ? 'Obsidiana' : 'Obsidian', colors: ['#b49cff', '#0b0a10'] },
   ];
   const popover = open && typeof document !== 'undefined' ? createPortal(<section ref={popoverRef} className="experience-popover experience-popover-portal" style={{ top: position.top, left: position.left }} aria-label={es ? 'Preferencias de experiencia' : 'Experience preferences'} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
       <p className="eyebrow">{es ? 'EXPERIENCIA' : 'EXPERIENCE'}</p><h3>{es ? 'Hazlo tuyo' : 'Make it yours'}</h3>
