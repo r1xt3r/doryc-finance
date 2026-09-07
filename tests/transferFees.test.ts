@@ -21,3 +21,8 @@ test('does not charge transfers originating at Banco Guayaquil', () => {
 test('does not charge transfers within the same bank', () => {
   assert.equal(digitalTransferFeeCents('Produbanco', 'Produbanco'), 0);
 });
+
+test('does not charge a bank fee for cash withdrawals or deposits', () => {
+  assert.equal(digitalTransferFeeCents('Pichincha', 'Cash'), 0);
+  assert.equal(digitalTransferFeeCents('Cash', 'Produbanco'), 0);
+});
