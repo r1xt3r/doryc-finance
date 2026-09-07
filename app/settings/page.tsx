@@ -5,11 +5,17 @@ import { createClient } from '../../lib/supabase/client';
 import { useLanguage } from '../../lib/useLanguage';
 import LanguageSelector from '../components/LanguageSelector';
 import LogoMark from '../components/LogoMark';
+import CategorySettings from '../../modules/planning/presentation/CategorySettings';
 
 async function accessToken() {
   const stored = window.sessionStorage.getItem('doryc_access_token');
   if (stored) return stored;
   return Promise.race([createClient().auth.getSession().then((result: { data: { session: { access_token: string } | null } }) => result.data.session?.access_token || null), new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 4_000))]);
+}
+
+async function authenticatedRequest(input: RequestInfo, init: RequestInit = {}) {
+  const token = await accessToken();
+  return fetch(input, { ...init, headers: { ...Object.fromEntries(new Headers(init.headers).entries()), ...(token ? { authorization: `Bearer ${token}` } : {}) } });
 }
 
 export default function SettingsPage() {
@@ -41,6 +47,7 @@ export default function SettingsPage() {
   return <main className="settings-page"><header><Link href="/" aria-label={tr('Back to Doryc', 'Volver a Doryc')}><LogoMark/></Link><div className="settings-header-actions"><LanguageSelector language={language} onChange={setLanguage}/><Link href="/">← {tr('Back to dashboard', 'Volver al dashboard')}</Link></div></header><section className="settings-hero"><p className="eyebrow">{tr('ACCOUNT & DATA', 'CUENTA Y DATOS')}</p><h1>{tr('Your space in Doryc', 'Tu espacio en Doryc')}</h1><p>{tr('Manage your identity, security and a copy of your information.', 'Administra tu identidad, seguridad y una copia de tu información.')}</p></section>{message && <div className="settings-message" role="status">{message}</div>}<div className="settings-grid">
     <section className="settings-card"><p className="eyebrow">{tr('PROFILE & SECURITY', 'PERFIL Y SEGURIDAD')}</p><h2>{tr('Access information', 'Información de acceso')}</h2><form onSubmit={updateProfile}><label><span>{tr('Name', 'Nombre')}</span><input value={name} onChange={(event) => setName(event.target.value)} required/></label><label><span>{tr('Email', 'Correo')}</span><input value={email} disabled/></label><label><span>{tr('New password (optional)', 'Nueva contraseña (opcional)')}</span><input name="password" type="password" minLength={8} autoComplete="new-password" placeholder={tr('Leave empty to keep it', 'Déjalo vacío para conservarla')}/></label><button className="save-button" disabled={busy}>{tr('Save changes', 'Guardar cambios')}</button></form></section>
     <section className="settings-card"><p className="eyebrow">{tr('PORTABILITY', 'PORTABILIDAD')}</p><h2>{tr('Export your data', 'Exporta tus datos')}</h2><p>{tr('Download all your accounts, movements, payments, cards and loans as JSON.', 'Descarga en JSON todas tus cuentas, movimientos, pagos, tarjetas y préstamos.')}</p><button className="secondary-button" type="button" onClick={exportData} disabled={busy}>{tr('Download my information', 'Descargar mi información')}</button></section>
+    <CategorySettings language={language} request={authenticatedRequest}/>
     <section className="settings-card danger-zone"><p className="eyebrow">{tr('DANGER ZONE', 'ZONA DE RIESGO')}</p><h2>{tr('Delete account', 'Eliminar cuenta')}</h2><p>{tr('This permanently deletes your user and all associated financial information.', 'Esta acción elimina permanentemente tu usuario y toda la información financiera asociada.')}</p><label><span>{tr(`Type ${deletionWord} to confirm`, `Escribe ${deletionWord} para confirmar`)}</span><input value={confirmation} onChange={(event) => setConfirmation(event.target.value)}/></label><button type="button" onClick={deleteAccount} disabled={busy || confirmation !== deletionWord}>{tr('Delete my account', 'Eliminar mi cuenta')}</button></section>
   </div><footer><Link href="/privacy">{tr('Privacy', 'Privacidad')}</Link><Link href="/terms">{tr('Terms', 'Términos')}</Link><a href="mailto:ramolinap03@gmail.com">{tr('Support: Richard Molina', 'Soporte: Richard Molina')}</a></footer></main>;
 }

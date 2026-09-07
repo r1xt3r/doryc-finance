@@ -20,6 +20,15 @@ test('launch migrations restrict account deletion to authenticated users', () =>
   assert.match(migration, /where id = auth\.uid\(\)/i);
 });
 
+test('planning data is private to its authenticated owner', () => {
+  const migration = read('supabase/add_financial_planning.sql');
+  const tables = ['monthly_budgets', 'savings_goals', 'custom_categories', 'category_rules', 'cash_reconciliations', 'financial_audit_log', 'financial_plans', 'account_roles'];
+  for (const table of tables) {
+    assert.match(migration, new RegExp(`alter table public\\.${table} enable row level security`, 'i'), `${table} must enable RLS`);
+    assert.match(migration, new RegExp(`on public\\.${table}[\\s\\S]*auth\\.uid\\(\\)\\)\\s*=\\s*user_id`, 'i'), `${table} policies must be scoped to auth.uid()`);
+  }
+});
+
 test('production surface includes recovery and legal routes', () => {
   assert.match(read('app/login/page.tsx'), /resetPasswordForEmail/);
   assert.match(read('app/auth/confirm/route.ts'), /startsWith\('\/'\)/);

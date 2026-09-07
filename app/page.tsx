@@ -17,6 +17,8 @@ import { calculateFinancialHealth } from '../modules/insights/domain/financialHe
 import { buildFinanceNotifications } from '../modules/insights/domain/notifications';
 import FinancialHealthCard from '../modules/insights/presentation/FinancialHealthCard';
 import NotificationCenter from '../modules/insights/presentation/NotificationCenter';
+import FinancialPlanner from '../modules/planning/presentation/FinancialPlanner';
+import SavingsGoals from '../modules/planning/presentation/SavingsGoals';
 import MonthlyClose from '../modules/insights/presentation/MonthlyClose';
 import MoneyCalendar from '../modules/calendar/presentation/MoneyCalendar';
 import { salaryPaymentWindow } from '../modules/recurring-payments/domain/salarySchedule';
@@ -24,7 +26,7 @@ import { belongsToPlanningWindow, planningMonthKey } from '../lib/planningCycle'
 import { isDedicatedSavingsAccount, normalizeAccountType } from '../lib/accountTypes';
 
 type Account = { id: string; name: string; bank: string; accountType: string; startingBalance: number; balance: number };
-type Transaction = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount: number; date: string; createdAt: string; budgetMonth: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; debtMovement?: boolean };
+type Transaction = { id: string; type: 'expense' | 'income' | 'transfer'; description: string; amount: number; date: string; createdAt: string; budgetMonth: string; from_account_id: string | null; to_account_id: string | null; category: string | null; payment_method: string | null; recurringPaymentId?: string | null; debtMovement?: boolean };
 type SharedMember = { name: string; amount: number };
 type SharedContribution = { id: string; recurringPaymentId: string; participantName: string; amount: number; cycleMonth: string; receivedAccountId: string; receivedDate: string; createdAt: string };
 type Recurring = { id: string; name: string; amount: number; next_due_date: string; pay_from_account_id: string; category: string | null; payment_method: string | null; paid_this_cycle: number; flowType: 'income' | 'expense'; sharedMembers: SharedMember[] };
@@ -34,8 +36,41 @@ type CardPayment = { id: string; creditCardId: string; fromAccountId: string; am
 type PersonalLoan = { id: string; direction: 'i_owe' | 'owed_to_me'; personName: string; amount: number; paid: number; accountId: string | null; dueDate: string | null; note: string | null; status: string };
 type PersonalLoanPayment = { id: string; personalLoanId: string; accountId: string; amount: number; date: string; entryType: 'payment' | 'advance' };
 type BankLoan = { id: string; bank: string; name: string; originalAmount: number; outstandingBalance: number; installment: number; nextDueDate: string; paymentDay: number; totalInstallments: number; paidInstallments: number; annualRate: number | null; payFromAccountId: string | null };
-type DashboardData = { name: string; accounts: Account[]; transactions: Transaction[]; recurring: Recurring[]; sharedContributions: SharedContribution[]; creditCards: CreditCard[]; cardPurchases: CardPurchase[]; cardPayments: CardPayment[]; personalLoans: PersonalLoan[]; personalLoanPayments: PersonalLoanPayment[]; bankLoans: BankLoan[]; onboardingCompleted: boolean; income: number; spent: number };
+type DashboardData = { name: string; accounts: Account[]; accountRoles: Array<{ account_id: string; role: string }>; transactions: Transaction[]; recurring: Recurring[]; sharedContributions: SharedContribution[]; creditCards: CreditCard[]; cardPurchases: CardPurchase[]; cardPayments: CardPayment[]; personalLoans: PersonalLoan[]; personalLoanPayments: PersonalLoanPayment[]; bankLoans: BankLoan[]; onboardingCompleted: boolean; income: number; spent: number };
 type ActionType = 'Expense' | 'Income' | 'Transfer' | 'Recurring';
+
+function GroupedAccountOptions({ accounts, language, includeBalance = false, prefix = '' }: { accounts: Account[]; language: 'en' | 'es'; includeBalance?: boolean; prefix?: string }) {
+  const groups = new Map<string, Account[]>();
+  for (const account of accounts) groups.set(account.bank, [...(groups.get(account.bank) || []), account]);
+  const typeLabel = (type: string) => language === 'es' ? ({ savings: 'Ahorros', checking: 'Corriente', debit: 'Débito', cash: 'Efectivo' }[type.toLowerCase()] || type) : type;
+  return <>{[...groups.entries()].map(([bank, bankAccounts]) => <optgroup key={bank} label={bank.toLowerCase() === 'cash' ? language === 'es' ? 'Efectivo' : 'Cash' : bank}>{bankAccounts.map((account) => <option key={account.id} value={account.id}>{prefix}{account.name} · {typeLabel(account.accountType)}{includeBalance ? ` · ${money(account.balance)}` : ''}</option>)}</optgroup>)}</>;
+}
+
+function AccountSelectOrganizer({ accounts, language }: { accounts: Account[]; language: 'en' | 'es' }) {
+  useEffect(() => {
+    const ids = new Set(accounts.map((account) => account.id));
+    const organize = () => document.querySelectorAll<HTMLSelectElement>('select').forEach((select) => {
+      const accountOptions = [...select.options].filter((option) => ids.has(option.value));
+      if (!accountOptions.length || select.dataset.bankGroups === `${language}:${accounts.map((item) => item.id).join(',')}`) return;
+      const labels = new Map(accountOptions.map((option) => [option.value, option.textContent || '']));
+      const selected = select.value;
+      select.querySelectorAll('optgroup[data-doryc-bank]').forEach((group) => group.remove());
+      [...select.options].filter((option) => ids.has(option.value)).forEach((option) => option.remove());
+      const groups = new Map<string, Account[]>();
+      for (const account of accounts.filter((account) => labels.has(account.id))) groups.set(account.bank, [...(groups.get(account.bank) || []), account]);
+      for (const [bank, bankAccounts] of groups) {
+        const group = document.createElement('optgroup'); group.dataset.dorycBank = 'true'; group.label = bank.toLowerCase() === 'cash' ? language === 'es' ? 'Efectivo' : 'Cash' : bank;
+        for (const account of bankAccounts) { const option = document.createElement('option'); option.value = account.id; option.textContent = labels.get(account.id) || account.name; group.append(option); }
+        select.append(group);
+      }
+      select.value = selected; select.dataset.bankGroups = `${language}:${accounts.map((item) => item.id).join(',')}`;
+    });
+    organize();
+    const observer = new MutationObserver(() => organize()); observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [accounts, language]);
+  return null;
+}
 
 function PencilIcon() { return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>; }
 function TrashIcon() { return <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4h8v2m-9 0 1 15h8l1-15M10 10v7m4-7v7"/></svg>; }
@@ -43,9 +78,7 @@ function ChevronIcon({ open = false }: { open?: boolean }) { return <svg classNa
 function PiggyBankIcon() { return <svg className="piggy-bank-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5.3 10.1A6.8 6.8 0 0 1 12 5.5h2.2l2.4-1.8.5 3a6.1 6.1 0 0 1 1.5 2.1H21v4h-2.2a6.8 6.8 0 0 1-2.4 3l.1 2.5h-3l-.5-1.6H9.2l-.7 1.6h-3l.5-3A6.4 6.4 0 0 1 4 11.1"/><path d="M9.5 5.9c.5-1.1 1.6-1.8 3-1.8M13.4 8.5h2.4"/><circle cx="15.6" cy="9.8" r=".6" fill="currentColor" stroke="none"/><path d="M4 11.2c-1.2 0-1.8-.6-1.8-1.4 0-.6.4-1 1-1"/></svg>; }
 
 const initialData: DashboardData = {
-  name: '', income: 0, spent: 0, transactions: [], sharedContributions: [], creditCards: [], cardPurchases: [], cardPayments: [], personalLoans: [], personalLoanPayments: [], bankLoans: [], onboardingCompleted: true,
-  accounts: [],
-  recurring: [],
+  name: '', income: 0, spent: 0, accounts: [], accountRoles: [], transactions: [], recurring: [], sharedContributions: [], creditCards: [], cardPurchases: [], cardPayments: [], personalLoans: [], personalLoanPayments: [], bankLoans: [], onboardingCompleted: true,
 };
 
 const money = (value: number) => value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -126,26 +159,41 @@ export default function Home() {
     Transfer: tr('New transfer', 'Nueva transferencia'),
     Recurring: tr('New recurring payment', 'Nuevo pago recurrente'),
   })[action];
-  const transactionDescription = (description: string) =>
-    description === 'Comisión por transferencia interbancaria' || description === 'Interbank transfer fee'
-      ? tr('Interbank transfer fee', 'Comisión por transferencia interbancaria')
-      : description === 'Bank withdrawal'
-        ? tr('Bank withdrawal', 'Retiro bancario')
-        : description === 'Bank deposit'
-          ? tr('Bank deposit', 'Depósito bancario')
-      : description;
+  const transactionDescription = (description: string) => {
+    if (description === 'Comisión por transferencia interbancaria' || description === 'Interbank transfer fee') return tr('Interbank transfer fee', 'Comisión por transferencia interbancaria');
+    if (description === 'Bank withdrawal') return tr('Bank withdrawal', 'Retiro bancario');
+    if (description === 'Bank deposit') return tr('Bank deposit', 'Depósito bancario');
+    const dynamicDescriptions: Array<[RegExp, (...parts: string[]) => string]> = [
+      [/^Repayment received from (.+)$/i, (name) => tr(`Repayment received from ${name}`, `Pago recibido de ${name}`)],
+      [/^Debt repayment to (.+)$/i, (name) => tr(`Debt repayment to ${name}`, `Pago de deuda a ${name}`)],
+      [/^Borrowed more from (.+)$/i, (name) => tr(`Borrowed more from ${name}`, `Préstamo adicional de ${name}`)],
+      [/^Lent more to (.+)$/i, (name) => tr(`Lent more to ${name}`, `Préstamo adicional a ${name}`)],
+      [/^Borrowed from (.+)$/i, (name) => tr(`Borrowed from ${name}`, `Dinero prestado por ${name}`)],
+      [/^Lent to (.+)$/i, (name) => tr(`Lent to ${name}`, `Dinero prestado a ${name}`)],
+      [/^(.+) share received from (.+)$/i, (payment, person) => tr(`${payment} share received from ${person}`, `Aporte de ${person} para ${payment}`)],
+      [/^(.+) installment$/i, (name) => tr(`${name} installment`, `Cuota de ${name}`)],
+    ];
+    for (const [pattern, translate] of dynamicDescriptions) {
+      const match = description.match(pattern);
+      if (match) return translate(...match.slice(1));
+    }
+    return description;
+  };
   const categoryLabels: Record<string, string> = {
     'Transfer Received': tr('Transfer Received', 'Transferencia recibida'), Salary: tr('Salary', 'Salario'), Interest: tr('Interest', 'Intereses'), Refund: tr('Refund', 'Reembolso'),
     Food: tr('Food', 'Alimentación'), Transportation: tr('Transportation', 'Transporte'), Shopping: tr('Shopping', 'Compras'), Personal: tr('Personal', 'Personal'), Alcohol: tr('Alcohol', 'Alcohol'),
     Entertainment: tr('Entertainment', 'Entretenimiento'), Subscriptions: tr('Subscriptions', 'Suscripciones'), Utilities: tr('Utilities', 'Servicios básicos'), Home: tr('Home', 'Hogar'),
     Health: tr('Health', 'Salud'), Insurance: tr('Insurance', 'Seguros'), Debt: tr('Debt', 'Deudas'), Other: tr('Other', 'Otro'), 'Bank fees': tr('Bank fees', 'Comisiones bancarias'),
+    'Debt movement': tr('Debt movement', 'Movimiento de deuda'), 'Cash movement': tr('Cash movement', 'Movimiento de efectivo'), 'Balance adjustment': tr('Balance adjustment', 'Ajuste de saldo'),
+    'Shared payment': tr('Shared payment', 'Pago compartido'), 'Credit card': tr('Credit card', 'Tarjeta de crédito'), Loan: tr('Loan', 'Préstamo'),
   };
   const paymentMethodLabels: Record<string, string> = {
     'Debit Card': tr('Debit Card', 'Tarjeta de débito'), 'Bank Transfer': tr('Bank Transfer', 'Transferencia bancaria'), Deuna: 'Deuna',
-    'Automatic Debit': tr('Automatic Debit', 'Débito automático'), Cash: tr('Cash', 'Efectivo'),
+    'Automatic Debit': tr('Automatic Debit', 'Débito automático'), Cash: tr('Cash', 'Efectivo'), 'Personal IOU': tr('Personal IOU', 'Deuda personal'),
+    'Transfer Received': tr('Transfer Received', 'Transferencia recibida'), 'Manual adjustment': tr('Manual adjustment', 'Ajuste manual'),
   };
   const accountTypeLabels: Record<string, string> = { Savings: tr('Savings', 'Ahorros'), Checking: tr('Checking', 'Corriente'), Debit: tr('Debit', 'Débito'), Cash: tr('Cash', 'Efectivo') };
-  const isSavingsAccount = (account: Account) => isDedicatedSavingsAccount(account.bank, account.accountType);
+  const isSavingsAccount = (account: Account) => data.accountRoles.length ? data.accountRoles.some((item) => item.account_id === account.id && item.role === 'savings') : isDedicatedSavingsAccount(account.bank, account.accountType);
   const accountTypeLabel = (account: Account) => ({ savings: tr('Savings', 'Ahorros'), saving: tr('Savings', 'Ahorros'), ahorros: tr('Savings', 'Ahorros'), ahorro: tr('Savings', 'Ahorros'), checking: tr('Checking', 'Corriente'), corriente: tr('Checking', 'Corriente'), debit: tr('Debit', 'Débito'), debito: tr('Debit', 'Débito'), cash: tr('Cash', 'Efectivo'), efectivo: tr('Cash', 'Efectivo') }[normalizeAccountType(account.accountType)] || account.accountType);
   const transactionCategory = (category: string | null) => category ? categoryLabels[category] || category : category;
   const localizedError = (message: string) => {
@@ -174,6 +222,12 @@ export default function Home() {
   const [activityEndDate, setActivityEndDate] = useState(today);
   const [activityDraftStartDate, setActivityDraftStartDate] = useState(today);
   const [activityDraftEndDate, setActivityDraftEndDate] = useState(today);
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityAccountFilter, setActivityAccountFilter] = useState('');
+  const [activityCategoryFilter, setActivityCategoryFilter] = useState('');
+  const [activityTypeFilter, setActivityTypeFilter] = useState('');
+  const [cashCounted, setCashCounted] = useState('');
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [activityPage, setActivityPage] = useState(1);
   const [showCardPaymentHistory, setShowCardPaymentHistory] = useState(false);
   const [showBalanceDetail, setShowBalanceDetail] = useState(false);
@@ -201,13 +255,17 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    authenticatedFetch('/api/planning').then((response) => response.json()).then((result) => setCustomCategories((result.categories || []).map((item: { name: string }) => item.name))).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     if (!editingRecurring) return;
     const frame = window.requestAnimationFrame(() => setSharedPaymentEnabled(editingRecurring.sharedMembers?.length > 0));
     return () => window.cancelAnimationFrame(frame);
   }, [editingRecurring]);
 
   useEffect(() => {
-    const views: DashboardView[] = ['overview', 'accounts', 'payments', 'credit', 'people', 'activity'];
+    const views: DashboardView[] = ['overview', 'accounts', 'savings', 'payments', 'credit', 'people', 'activity'];
     const syncView = () => {
       const requested = window.location.hash.slice(1) as DashboardView;
       if (views.includes(requested)) setActiveView(requested);
@@ -327,10 +385,32 @@ export default function Home() {
     }
     return [...grouped.entries()].map(([bank, accounts]) => ({ bank, accounts, balance: accounts.reduce((sum, account) => sum + account.balance, 0) }));
   })();
-  const filteredActivity = data.transactions.filter((item) => item.date >= activityStartDate && item.date <= activityEndDate).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
+  const accountMap = new Map(data.accounts.map((account) => [account.id, account.name]));
+  const filteredActivity = data.transactions.filter((item) => {
+    if (item.date < activityStartDate || item.date > activityEndDate) return false;
+    if (activityAccountFilter && item.from_account_id !== activityAccountFilter && item.to_account_id !== activityAccountFilter) return false;
+    if (activityCategoryFilter && item.category !== activityCategoryFilter) return false;
+    if (activityTypeFilter && item.type !== activityTypeFilter) return false;
+    const query = activitySearch.trim().toLocaleLowerCase(language === 'es' ? 'es' : 'en');
+    if (!query) return true;
+    const searchable = [transactionDescription(item.description), item.category && transactionCategory(item.category), item.payment_method, accountMap.get(item.from_account_id || ''), accountMap.get(item.to_account_id || '')].filter(Boolean).join(' ').toLocaleLowerCase(language === 'es' ? 'es' : 'en');
+    return searchable.includes(query);
+  }).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt));
   const activityPageCount = Math.max(1, Math.ceil(filteredActivity.length / 10));
   const visibleActivityPage = Math.min(activityPage, activityPageCount);
   const activity = filteredActivity.slice((visibleActivityPage - 1) * 10, visibleActivityPage * 10);
+  const exportFilteredActivity = () => {
+    const escapeCsv = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+    const rows = filteredActivity.map((item) => [item.date, transactionDescription(item.description), item.type, transactionCategory(item.category), accountMap.get(item.from_account_id || ''), accountMap.get(item.to_account_id || ''), item.payment_method, item.amount]);
+    const csv = [[tr('Date', 'Fecha'), tr('Description', 'Descripción'), tr('Type', 'Tipo'), tr('Category', 'Categoría'), tr('From', 'Desde'), tr('To', 'Hacia'), tr('Payment method', 'Método de pago'), tr('Amount', 'Monto')], ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url; link.download = `doryc-${activityStartDate}-${activityEndDate}.csv`; link.click();
+    URL.revokeObjectURL(url);
+  };
+  const activityDatesApplied = activityDraftStartDate === activityStartDate && activityDraftEndDate === activityEndDate;
+  const activityTodayActive = activityStartDate === today && activityEndDate === today;
+  const activityMonthActive = !activityTodayActive && activityStartDate === `${today.slice(0, 8)}01` && activityEndDate === today;
   const recurringIncome = data.recurring.filter((item) => item.flowType === 'income');
   const recurringExpenses = data.recurring.filter((item) => item.flowType !== 'income');
   const activePlanningMonth = planningMonthKey(today);
@@ -342,12 +422,11 @@ export default function Home() {
   const allUpcoming = recurringExpenses.filter((item) => belongsToPlanningWindow(item.next_due_date, activePlanningMonth));
   const paidThisCycle = recurringExpenses.filter((item) => item.paid_this_cycle && item.next_due_date > today);
   const upcoming = showAllUpcoming ? allUpcoming : allUpcoming.slice(0, 3);
-  const accountMap = useMemo(() => new Map(data.accounts.map((account) => [account.id, account.name])), [data.accounts]);
   const pichinchaCheckingId = data.accounts.find((account) => account.bank === 'Pichincha' && account.accountType.toLowerCase() === 'checking')?.id || '';
   const bankLoanAccountId = (loan: BankLoan) => loan.bank === 'Pichincha' && pichinchaCheckingId ? pichinchaCheckingId : loan.payFromAccountId;
-  const purchasesByCard = useMemo(() => { const grouped = new Map<string, CardPurchase[]>(); for (const purchase of data.cardPurchases) { const group = grouped.get(purchase.creditCardId); if (group) group.push(purchase); else grouped.set(purchase.creditCardId, [purchase]); } return grouped; }, [data.cardPurchases]);
-  const paymentsByCard = useMemo(() => { const grouped = new Map<string, CardPayment[]>(); for (const payment of data.cardPayments || []) { const group = grouped.get(payment.creditCardId); if (group) group.push(payment); else grouped.set(payment.creditCardId, [payment]); } return grouped; }, [data.cardPayments]);
-  const cardSummaries = useMemo(() => data.creditCards.map((card) => {
+  const purchasesByCard = (() => { const grouped = new Map<string, CardPurchase[]>(); for (const purchase of data.cardPurchases) { const group = grouped.get(purchase.creditCardId); if (group) group.push(purchase); else grouped.set(purchase.creditCardId, [purchase]); } return grouped; })();
+  const paymentsByCard = (() => { const grouped = new Map<string, CardPayment[]>(); for (const payment of data.cardPayments || []) { const group = grouped.get(payment.creditCardId); if (group) group.push(payment); else grouped.set(payment.creditCardId, [payment]); } return grouped; })();
+  const cardSummaries = data.creditCards.map((card) => {
     const purchases = purchasesByCard.get(card.id) || [];
     const payments = paymentsByCard.get(card.id) || [];
     const purchasesTotal = purchases.reduce((sum, purchase) => sum + purchase.amount, 0);
@@ -360,8 +439,16 @@ export default function Home() {
     const nextPaymentDate = candidateDueDates[0] || currentStatementDueDate;
     const purchasesInNextPayment = purchasesWithDueDate.filter((purchase) => purchase.dueDate === nextPaymentDate);
     const estimatedPayment = estimateCardPayment(nextPaymentDate === currentStatementDueDate ? remainingStatement : 0, card.annualRate, purchasesInNextPayment);
-    return { card, purchases: purchasesWithDueDate, payments, used, available: Math.max(card.creditLimit - used, 0), estimatedPayment, nextPaymentDate };
-  }), [data.creditCards, paymentsByCard, purchasesByCard, today]);
+    return { card, purchases: purchasesWithDueDate, payments, used, available: Math.max(card.creditLimit - used, 0), remainingStatement, utilization: card.creditLimit > 0 ? used / card.creditLimit * 100 : 0, estimatedPayment, nextPaymentDate };
+  });
+  const planNameKey = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const recurringForMonthlyPlan = recurringExpenses.filter((payment) => !data.bankLoans.some((loan) => planNameKey(loan.name) === planNameKey(payment.name) && Math.abs(Math.min(loan.installment, loan.outstandingBalance) - payment.amount) < .01));
+  const monthlyCommitmentBreakdown = {
+    recurring: recurringForMonthlyPlan.reduce((sum, payment) => sum + payment.amount, 0),
+    cards: cardSummaries.reduce((sum, summary) => sum + summary.estimatedPayment, 0),
+    loans: data.bankLoans.filter((loan) => loan.outstandingBalance > 0).reduce((sum, loan) => sum + Math.min(loan.installment, loan.outstandingBalance), 0),
+  };
+  const monthlyPlanCommitments = monthlyCommitmentBreakdown.recurring + monthlyCommitmentBreakdown.cards + monthlyCommitmentBreakdown.loans;
   const planningBankLoans = data.bankLoans.filter((loan) => belongsToPlanningWindow(loan.nextDueDate, activePlanningMonth));
   const planningCardSummaries = cardSummaries.filter(({ nextPaymentDate }) => belongsToPlanningWindow(nextPaymentDate, activePlanningMonth));
   const allFundingPayments = [
@@ -390,10 +477,8 @@ export default function Home() {
   const totalFundingNeeded = fundingPlan.reduce((sum, item) => sum + item.needed, 0);
   const outstanding = fundingPlan.reduce((sum, item) => sum + item.required, 0);
   const expectedIncomeTotal = expectedIncome.reduce((sum, item) => sum + item.amount, 0);
+  const usualMonthlyIncome = recurringIncome.reduce((sum, item) => sum + item.amount, 0);
   const projectedBalance = totalBalance + expectedIncomeTotal - outstanding;
-  const availableAfterIncome = Math.max(totalBalance + expectedIncomeTotal, 0);
-  const paymentCoverage = outstanding > 0 ? Math.min(100, availableAfterIncome / outstanding * 100) : 100;
-  const forecastScale = Math.max(availableAfterIncome, outstanding, Math.abs(projectedBalance), 1);
   const financialTimeline = [
     ...expectedIncome.map((income) => ({ id: `income-${income.id}`, name: income.name, date: income.next_due_date, amount: income.amount, kind: 'Expected income', direction: 'income' as const })),
     ...allUpcoming.map((payment) => ({ id: `recurring-${payment.id}`, name: payment.name, date: payment.next_due_date, amount: payment.amount, kind: payment.payment_method || 'Payment', direction: 'expense' as const })),
@@ -413,7 +498,7 @@ export default function Home() {
   const nextDueDays = nextDueDate ? Math.ceil((new Date(`${nextDueDate}T12:00:00`).getTime() - new Date(`${today}T12:00:00`).getTime()) / 86_400_000) : null;
   const notifications = buildFinanceNotifications({ fundingNeeded: totalFundingNeeded, creditUtilization: totalCreditLimit ? totalCreditUsed / totalCreditLimit * 100 : 0, nextDueDays, potentialSavings: Math.max(projectedBalance, 0) });
   const debtPaidThisMonth = data.personalLoanPayments.filter((payment) => payment.entryType === 'payment' && payment.date.startsWith(today.slice(0, 7))).reduce((sum, payment) => sum + payment.amount, 0) + data.cardPayments.filter((payment) => payment.date.startsWith(today.slice(0, 7))).reduce((sum, payment) => sum + payment.amount, 0);
-  const categorySpending = useMemo(() => {
+  const categorySpending = (() => {
     const month = today.slice(0, 7);
     const totals = new Map<string, { amount: number; count: number }>();
     data.transactions
@@ -427,7 +512,7 @@ export default function Home() {
       .map(([category, summary]) => ({ category, ...summary }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 7);
-  }, [data.transactions, today]);
+  })();
   const categoryMax = Math.max(...categorySpending.map((item) => item.amount), 1);
   const ecuadorHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Guayaquil', hour: '2-digit', hourCycle: 'h23' }).format(currentTime));
   const greeting = ecuadorHour < 12 ? tr('Good morning', 'Buenos días') : ecuadorHour < 18 ? tr('Good afternoon', 'Buenas tardes') : tr('Good evening', 'Buenas noches');
@@ -443,8 +528,8 @@ export default function Home() {
   ];
   const completedMissions = setupMissions.filter((mission) => mission.done).length;
   const viewTitles: Record<DashboardView, string> = language === 'es'
-    ? { overview: 'Resumen', accounts: 'Cuentas y ahorros', payments: 'Pagos', credit: 'Crédito y préstamos', people: 'Dinero entre personas', activity: 'Flujo de caja' }
-    : { overview: 'Overview', accounts: 'Accounts & savings', payments: 'Payments', credit: 'Credit & loans', people: 'Money between people', activity: 'Cash flow' };
+    ? { overview: 'Resumen', accounts: 'Cuentas', savings: 'Ahorros', payments: 'Pagos', credit: 'Crédito y préstamos', people: 'Dinero entre personas', activity: 'Actividad' }
+    : { overview: 'Overview', accounts: 'Accounts', savings: 'Savings', payments: 'Payments', credit: 'Credit & loans', people: 'Money between people', activity: 'Activity' };
   const navigateTo = useCallback((view: DashboardView) => { setActiveView(view); window.history.pushState(null, '', `#${view}`); window.scrollTo({ top: 0, behavior: 'smooth' }); }, []);
 
   const celebrateMoneyIn = () => {
@@ -461,7 +546,7 @@ export default function Home() {
     if (!root.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const rows = root.current.querySelectorAll('.account-row,.payment-row,.activity-row');
     const categories = root.current.querySelectorAll('.category-row');
-    const tracks = root.current.querySelectorAll('.category-track i,.progress-track span,.savings-track i,.credit-limit-track i,.bank-loan-track i,.funding-account-track i');
+    const tracks = root.current.querySelectorAll('.category-track i,.progress-track span,.savings-track i,.credit-limit-track i,.bank-loan-track i,.funding-account-track i,.budget-track i,.goal-progress i');
     if (rows.length) animate(rows, { opacity: [0, 1], x: [16, 0], delay: stagger(42), duration: 520, ease: 'outCubic' });
     if (categories.length) animate(categories, { opacity: [0, 1], y: [10, 0], delay: stagger(70), duration: 500, ease: 'outCubic' });
     if (tracks.length) animate(tracks, { scaleX: [0, 1], delay: stagger(75), duration: 850, ease: 'outExpo' });
@@ -612,6 +697,23 @@ export default function Home() {
     finally { setSaving(false); }
   }
 
+  async function reconcileCash(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const account = cashAccounts[0];
+    const counted = Number(cashCounted.replace(',', '.'));
+    if (!account || !Number.isFinite(counted) || counted < 0) return setError(tr('Enter a valid cash count.', 'Ingresa un conteo de efectivo válido.'));
+    setSaving(true); setError('');
+    try {
+      const response = await authenticatedFetch('/api/dashboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'accountUpdate', id: account.id, name: account.name, bank: account.bank, accountType: account.accountType, balance: counted }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || tr('Unable to reconcile cash.', 'No se pudo conciliar el efectivo.'));
+      setData(result);
+      await authenticatedFetch('/api/planning', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ entity: 'reconciliation', accountId: account.id, expected: account.balance, counted, note: tr('Physical cash count', 'Conteo físico de efectivo') }) });
+      setCashCounted(''); setToast(tr('Cash reconciled', 'Efectivo conciliado')); window.setTimeout(() => setToast(''), 2400);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : tr('Unable to reconcile cash.', 'No se pudo conciliar el efectivo.')); }
+    finally { setSaving(false); }
+  }
+
   async function deleteCreditCard(card: CreditCard) {
     if (!await confirmDialog.confirm({ title: tr('Delete credit card?', '¿Eliminar tarjeta?'), detail: tr(`${card.name} and all its registered purchases will be removed.`, `Se eliminarán ${card.name} y todas sus compras registradas.`) })) return;
     setSaving(true); setError('');
@@ -737,6 +839,7 @@ export default function Home() {
 
   return (
     <main ref={root} className={`app-shell ${loading ? 'app-is-loading' : ''}`}>
+      <AccountSelectOrganizer accounts={data.accounts} language={language}/>
       {showTour && <OnboardingTour language={language} onNavigate={navigateTo} onClose={skipTour} onFinish={finishTour} />}
       {loading && <section className="app-loading-screen" role="status" aria-live="polite"><LogoMark /><div><p className="eyebrow">DORYC</p><h1>{tr('Bringing your finances together', 'Organizando tus finanzas')}</h1><small>{tr('Connecting securely to your financial home…', 'Conectando de forma segura con tu espacio financiero…')}</small></div><div className="app-loading-progress" aria-hidden="true"><i /></div></section>}
       <DashboardSidebar activeView={activeView} name={data.name} paymentCount={fundingPayments.length} language={language} onNavigate={navigateTo} />
@@ -761,8 +864,8 @@ export default function Home() {
               <div className="card-kicker"><span>{tr('Available balance', 'Saldo disponible')}</span><span className="live-dot">{tr('Live', 'En vivo')}</span></div>
               <strong className="balance">{money(totalBalance)}</strong><p>{tr(`Across ${availableByBank.length} banks · ${availableAccounts.length} available accounts`, `En ${availableByBank.length} bancos · ${availableAccounts.length} cuentas disponibles`)}</p>
               <div className="balance-bank-grid">{availableByBank.map(({ bank, balance }) => { const identity = bankIdentity(bank); return <span className={`bank-theme bank-${identity.key}`} key={bank}><i><BankMark bank={bank}/></i><small>{bank}</small><strong>{money(balance)}</strong></span>; })}</div>
-              <div className="balance-footer"><span><small>{tr('Income this month', 'Ingresos este mes')}</small><strong>+{money(data.income)}</strong></span><span><small>{tr('Spent this month', 'Gastado este mes')}</small><strong>−{money(data.spent)}</strong></span></div>
-              <small className="balance-detail-hint">{tr('View account breakdown', 'Ver detalle por cuentas')} <b>→</b></small>
+              <div className="balance-footer"><span><small>{tr('Money in this month', 'Entradas de dinero este mes')}</small><strong>+{money(data.income)}</strong></span><span><small>{tr('Money out this month', 'Salidas de dinero este mes')}</small><strong>−{money(data.spent)}</strong></span></div>
+              <small className="balance-detail-hint">{tr('See how this balance is distributed', 'Ver cómo se distribuye este saldo')} <b>→</b></small>
             </button>
           </article>
           <article className="funding-card" data-reveal>
@@ -788,7 +891,7 @@ export default function Home() {
         </div>}
 
         <section className="overview-links" hidden={activeView !== 'overview'} aria-label={tr('Financial areas', 'Áreas financieras')}>
-          <button type="button" onClick={() => navigateTo('accounts')}><span>▥</span><small>{tr('Accounts & savings', 'Cuentas y ahorros')}</small><strong>{money(totalBalance + savingsTotal)}</strong><i>→</i></button>
+          <button type="button" onClick={() => navigateTo('accounts')}><span>▥</span><small>{tr('Accounts', 'Cuentas')}</small><strong>{money(totalBalance)}</strong><i>→</i></button>
           <button type="button" onClick={() => navigateTo('payments')}><span>◷</span><small>{tr('Upcoming payments', 'Próximos pagos')}</small><strong>{money(outstanding)}</strong><i>→</i></button>
           <button type="button" onClick={() => navigateTo('credit')}><span>◇</span><small>{tr('Credit & bank loans', 'Crédito y préstamos')}</small><strong>{data.creditCards.length + data.bankLoans.length} {tr('active', 'activos')}</strong><i>→</i></button>
           <button type="button" onClick={() => navigateTo('people')}><span>↔</span><small>{tr('Money between people', 'Dinero entre personas')}</small><strong>{data.personalLoans.filter((loan) => loan.status !== 'settled').length} {tr('open', 'pendientes')}</strong><i>→</i></button>
@@ -800,44 +903,37 @@ export default function Home() {
         </section>
 
         <section className="overview-intelligence" hidden={activeView !== 'overview'}>
-          <article className={`financial-pulse ${projectedBalance < 0 ? 'warning' : ''}`}>
-            <div className="pulse-heading"><span><p className="eyebrow">{tr('MONTHLY FORECAST', 'PROYECCIÓN MENSUAL')}</p><h2>{projectedBalance >= 0 ? tr('This is what you could save.', 'Esto es lo que podrías ahorrar.') : tr('Your commitments exceed available income.', 'Tus compromisos superan los ingresos disponibles.')}</h2></span><i title={tr('Percentage of scheduled commitments covered by available money and expected income', 'Porcentaje de compromisos programados cubiertos con tu saldo e ingresos esperados')}><strong>{paymentCoverage.toFixed(0)}%</strong><small>{tr('commitments covered', 'compromisos cubiertos')}</small></i></div>
-            <p className="pulse-message">{tr('Starting with', 'Partiendo de')} <strong>{money(totalBalance)}</strong>, {tr(`adding expected income and covering ${fundingMonth.toLowerCase()} commitments leaves`, `al sumar los ingresos esperados y cubrir los compromisos de ${fundingMonth.toLowerCase()}, quedarían`)} <strong>{money(projectedBalance)}</strong>.</p>
-            {recurringIncome.length === 0 && <button className="pulse-income-setup" type="button" onClick={() => { setEditingTransaction(null); setRecurringFlow('income'); setSharedPaymentEnabled(false); setActiveAction('Recurring'); }}><span>＋</span><span><strong>{tr('Add your expected salary', 'Agrega tu salario esperado')}</strong><small>{tr('Register the income you normally receive each month.', 'Registra el ingreso que normalmente recibes cada mes.')}</small></span><b>{tr('Set up', 'Configurar')} →</b></button>}
-            <div className="cash-forecast" aria-label="Monthly cash forecast">
-              <div><span><small>{tr('Available now', 'Disponible ahora')}</small><strong>{money(totalBalance)}</strong></span><i className="current" style={{ width: `${Math.max(totalBalance > 0 ? 4 : 0, Math.min(100, totalBalance / forecastScale * 100))}%` }} /></div>
-              <div><span><small>{tr('Expected income', 'Ingresos esperados')}</small><strong>+{money(expectedIncomeTotal)}</strong></span><i className="income" style={{ width: `${Math.max(expectedIncomeTotal > 0 ? 4 : 0, Math.min(100, expectedIncomeTotal / forecastScale * 100))}%` }} /></div>
-              <div><span><small>{tr('Monthly commitments', 'Compromisos mensuales')}</small><strong>−{money(outstanding)}</strong></span><i className="commitments" style={{ width: `${Math.max(outstanding > 0 ? 4 : 0, Math.min(100, outstanding / forecastScale * 100))}%` }} /></div>
-              <div className={projectedBalance >= 0 ? 'result positive' : 'result negative'}><span><small>{projectedBalance >= 0 ? tr('Potential savings', 'Ahorro posible') : tr('Missing funds', 'Fondos faltantes')}</small><strong>{money(Math.abs(projectedBalance))}</strong></span><i style={{ width: `${Math.max(Math.abs(projectedBalance) > 0 ? 4 : 0, Math.min(100, Math.abs(projectedBalance) / forecastScale * 100))}%` }} /></div>
-            </div>
-          </article>
           <article className="financial-calendar">
             <div className="calendar-heading"><span><p className="eyebrow">{tr('MONEY CALENDAR', 'CALENDARIO FINANCIERO')}</p><h2>{tr('Next on your timeline', 'Lo próximo en tu calendario')}</h2></span><button type="button" onClick={() => navigateTo('payments')}>{tr('View all', 'Ver todo')} →</button></div>
             {financialTimeline.length ? <MoneyCalendar items={financialTimeline} language={language} /> : <div className="timeline-empty"><strong>{tr('Your calendar is clear', 'Tu calendario está libre')}</strong><small>{tr('New scheduled payments will appear here.', 'Los nuevos pagos programados aparecerán aquí.')}</small></div>}
           </article>
         </section>
 
-        <section className="savings-panel panel" id="savings" data-reveal hidden={activeView !== 'accounts'}>
+        <div hidden={activeView !== 'overview'}><FinancialPlanner language={language} transactions={data.transactions} recurringExpenses={recurringExpenses.map((item) => ({ name: item.name, amount: item.amount }))} income={usualMonthlyIncome} commitments={monthlyPlanCommitments} commitmentBreakdown={monthlyCommitmentBreakdown} accounts={data.accounts.filter((account) => normalizeAccountType(account.accountType) !== 'cash')} request={authenticatedFetch}/></div>
+
+        <section className="savings-panel panel" id="savings" data-reveal hidden={activeView !== 'savings'}>
           <div className="savings-heading"><div><p className="eyebrow">{tr('SAVINGS', 'AHORROS')}</p><h2>{savingsAccounts.length === 1 ? savingsAccounts[0].name : tr('Savings accounts', 'Cuentas de ahorro')}</h2><p>{savingsAccounts.length === 1 ? `${savingsAccounts[0].bank} · ${tr('Savings account', 'Cuenta de ahorros')}.` : tr('Your dedicated savings accounts.', 'Tus cuentas de ahorro.')}</p></div><div><small>{tr('Total saved', 'Total ahorrado')}</small><strong>{money(savingsTotal)}</strong></div></div>
           <div className="savings-grid">{savingsAccounts.map((account) => {
             const share = savingsTotal > 0 ? account.balance / savingsTotal * 100 : 0;
             return <article className="savings-account" key={account.id}><div><span><PiggyBankIcon /></span><p><strong>{account.name}</strong><small>{account.bank} · {tr('Savings', 'Ahorros')}</small></p><strong>{money(account.balance)}</strong></div><div className="savings-track"><i style={{ width: `${savingsTotal > 0 ? Math.max(3, share) : 0}%` }} /><b className="savings-glow" aria-hidden="true" /></div><div><small>{share.toFixed(0)}% {tr('of savings', 'de los ahorros')}</small><small>{account.balance > 0 ? tr('Earning reserve', 'Reserva acumulada') : tr('Ready for your first deposit', 'Lista para tu primer depósito')}</small></div></article>;
           })}</div>
+          <SavingsGoals language={language} accounts={savingsAccounts} request={authenticatedFetch}/>
         </section>
 
         <section className="cash-wallet-panel panel" data-reveal hidden={activeView !== 'accounts'}>
           <div className="section-heading"><div><p className="eyebrow">{tr('CASH WALLET', 'EFECTIVO')}</p><h2>{tr('Cash on hand', 'Dinero en efectivo')}</h2><p>{tr('Track the money you physically carry and use it like any other account.', 'Controla el dinero que llevas contigo y úsalo como cualquier otra cuenta.')}</p></div>{cashAccounts.length === 0 && <button type="button" className="text-action" onClick={() => { setSelectedAccountId(''); setAccountPreset('cash'); setCardModal('account'); }}>+ {tr('Add cash wallet', 'Agregar efectivo')}</button>}</div>
-          {cashAccounts.length ? <div className="cash-wallet-summary"><span className="cash-wallet-icon">$</span><span><small>{tr('AVAILABLE CASH', 'EFECTIVO DISPONIBLE')}</small><strong>{money(cashTotal)}</strong><p>{tr('Cash expenses must use this wallet as their source account.', 'Los gastos en efectivo deben usar esta billetera como cuenta de origen.')}</p></span><button type="button" onClick={() => { setSelectedAccountId(cashAccounts[0].id); setAccountPreset('cash'); setCardModal('account'); }}>{tr('Adjust balance', 'Ajustar saldo')}</button></div> : <div className="cash-wallet-empty"><span>＋</span><p><strong>{tr('Start controlling your cash', 'Empieza a controlar tu efectivo')}</strong><small>{tr('Enter how much cash you have now. Deposits, withdrawals and expenses will update it.', 'Indica cuánto efectivo tienes ahora. Los ingresos, retiros y gastos actualizarán su saldo.')}</small></p></div>}
+          {cashAccounts.length ? <><div className="cash-wallet-summary"><span className="cash-wallet-icon">$</span><span><small>{tr('AVAILABLE CASH', 'EFECTIVO DISPONIBLE')}</small><strong>{money(cashTotal)}</strong><p>{tr('Cash expenses must use this wallet as their source account.', 'Los gastos en efectivo deben usar esta billetera como cuenta de origen.')}</p></span><button type="button" onClick={() => { setSelectedAccountId(cashAccounts[0].id); setAccountPreset('cash'); setCardModal('account'); }}>{tr('Adjust balance', 'Ajustar saldo')}</button></div><form className="cash-reconciliation" onSubmit={reconcileCash}><span><strong>{tr('Reconcile physical cash', 'Conciliar efectivo físico')}</strong><small>{tr('Count what is in your wallet. Doryc will record any difference.', 'Cuenta lo que tienes en tu billetera. Doryc registrará cualquier diferencia.')}</small></span><label><small>{tr('COUNTED AMOUNT', 'VALOR CONTADO')}</small><input value={cashCounted} onChange={(event) => setCashCounted(event.target.value)} inputMode="decimal" placeholder={money(cashTotal)} required/></label><button disabled={saving}>{tr('Reconcile', 'Conciliar')}</button></form></> : <div className="cash-wallet-empty"><span>＋</span><p><strong>{tr('Start controlling your cash', 'Empieza a controlar tu efectivo')}</strong><small>{tr('Enter how much cash you have now. Deposits, withdrawals and expenses will update it.', 'Indica cuánto efectivo tienes ahora. Los ingresos, retiros y gastos actualizarán su saldo.')}</small></p></div>}
         </section>
 
         <section className="cards-panel panel" data-reveal hidden={activeView !== 'credit'}>
           <div className="section-heading"><div><p className="eyebrow">{tr('CREDIT', 'CRÉDITO')}</p><h2>{tr('Credit cards', 'Tarjetas de crédito')}</h2></div><button type="button" className="text-action" onClick={() => setCardModal('card')}>+ {tr('Add card', 'Agregar tarjeta')}</button></div>
-          {cardSummaries.length ? <><div className="credit-card-grid">{cardSummaries.map(({ card, purchases, used, available, estimatedPayment, nextPaymentDate }) => <article className={`credit-card bank-theme bank-${bankIdentity(card.bank).key}`} key={card.id}>
-            <div className="credit-card-top"><span><i className="credit-bank-mark"><BankMark bank={card.bank}/></i>{card.bank}</span><strong className={`card-network ${(card.network || (card.name.toLowerCase().includes('mastercard') ? 'Mastercard' : 'Visa')).toLowerCase()}`}>{(card.network || (card.name.toLowerCase().includes('mastercard') ? 'Mastercard' : 'Visa')).toUpperCase()}</strong></div><div className="credit-card-identity"><i className="card-chip" aria-hidden="true"/><h3>{card.name}</h3></div>
+          {cardSummaries.length ? <><div className="credit-card-grid">{cardSummaries.map(({ card, purchases, used, available, remainingStatement, utilization, estimatedPayment, nextPaymentDate }) => <article className={`credit-card bank-theme bank-${bankIdentity(card.bank).key}`} key={card.id}>
+            <div className="credit-card-top"><span><i className="credit-bank-mark"><BankMark bank={card.bank}/></i>{card.bank}</span><strong className={`card-network ${(card.network || (card.name.toLowerCase().includes('mastercard') ? 'Mastercard' : 'Visa')).toLowerCase()}`}>{(card.network || (card.name.toLowerCase().includes('mastercard') ? 'Mastercard' : 'Visa')).toUpperCase()}</strong></div><div className="credit-card-identity"><h3>{card.name}</h3></div>
             <div className="credit-card-balance"><span><small>{tr('Available', 'Disponible')}</small><strong>{money(available)}</strong></span><span><small>{tr('Used', 'Utilizado')}</small><strong>{money(used)}</strong></span></div>
             <div className="credit-limit-track"><i style={{ width: `${Math.min(100, used / card.creditLimit * 100)}%` }} /></div>
             <div className="credit-card-meta"><span>{money(card.creditLimit)} {tr('limit', 'de límite')}</span><span>{Math.round(used / card.creditLimit * 100)}% {tr('used', 'utilizado')}</span></div>
             <div className="credit-next-payment"><span><small>{tr('Estimated payment', 'Pago estimado')} · {shortDate(nextPaymentDate)}</small><strong>{money(estimatedPayment)}</strong></span><span><small>{tr('Paid by transfer from', 'Se paga desde')}</small><strong>{accountMap.get(card.payFromAccountId || '') || tr('Select account', 'Selecciona una cuenta')}</strong></span></div>
+            <div className={`credit-guidance ${utilization > 50 ? 'warning' : utilization <= 30 ? 'healthy' : ''}`}><span><small>{tr('Amount to avoid interest', 'Valor para evitar intereses')}</small><strong>{money(remainingStatement)}</strong></span><span><small>{tr('Recommended card usage', 'Uso recomendado de la tarjeta')}</small><strong>{Math.round(utilization)}% · {utilization <= 30 ? tr('Healthy', 'Saludable') : utilization <= 50 ? tr('Moderate', 'Moderado') : tr('Reduce below 30%', 'Bájalo de 30%')}</strong></span></div>
             <div className="credit-card-footer"><small>{purchases.length} {tr(purchases.length === 1 ? 'purchase' : 'purchases', purchases.length === 1 ? 'compra' : 'compras')} · {tr('cut day', 'corte')} {card.statementDay || '—'} · {tr('pay day', 'pago')} {card.paymentDay || '—'}</small><span><button type="button" onClick={() => { setSelectedCardId(card.id); setCardModal('cardPayment'); }}>{tr('Pay card', 'Pagar tarjeta')}</button><button type="button" onClick={() => { setSelectedCardId(card.id); setCardModal('statement'); }}>{tr('Settings', 'Configurar')}</button><button type="button" onClick={() => { setSelectedCardId(card.id); setCardModal('purchase'); }}>{tr('Add purchase', 'Agregar compra')}</button><button className="danger-mini icon-action" type="button" aria-label={tr(`Delete ${card.name}`, `Eliminar ${card.name}`)} title={tr('Delete', 'Eliminar')} onClick={() => deleteCreditCard(card)}><TrashIcon /></button></span></div>
           </article>)}</div><div className="card-cash-flow"><div><p className="eyebrow">CARD CASH FLOW</p><h3>What is shaping your card payment</h3></div><div className="card-flow-stats"><span className="used-credit-stat"><small>Used credit · current debt</small><strong>{money(cardSummaries.reduce((sum, item) => sum + item.used, 0))}</strong></span><span><small>New purchases</small><strong>{money(data.cardPurchases.reduce((sum, purchase) => sum + purchase.amount, 0))}</strong></span><span><small>Estimated next payment</small><strong>{money(cardSummaries.reduce((sum, item) => sum + item.estimatedPayment, 0))}</strong></span></div>{cardSummaries.some((item) => item.purchases.length) ? <div className="card-purchase-list">{cardSummaries.flatMap((item) => item.purchases).slice(0, 5).map((purchase) => <div key={purchase.id}><span><strong>{purchase.description}</strong><small>{purchase.installmentMonths > 1 ? `Installment ${Math.min((purchase.installmentsPaid || 0) + 1, purchase.installmentMonths)} of ${purchase.installmentMonths}` : 'Current purchase'} · due {shortDate(purchase.dueDate)}</small></span><span className="purchase-actions"><strong>{money(purchase.amount)}</strong><button type="button" onClick={() => deleteCardPurchase(purchase)}>Delete</button></span></div>)}</div> : <p className="card-flow-empty">Your card purchases will appear here and explain the estimated payment.</p>}{(data.cardPayments || []).length > 0 && <div className="card-payment-history"><button className="card-payment-history-toggle" type="button" aria-expanded={showCardPaymentHistory} onClick={() => setShowCardPaymentHistory((open) => !open)}><span><strong>{tr('Recent card payments', 'Pagos recientes de tarjetas')}</strong><small>{data.cardPayments.length} {tr(data.cardPayments.length === 1 ? 'payment' : 'payments', data.cardPayments.length === 1 ? 'pago' : 'pagos')}</small></span><ChevronIcon open={showCardPaymentHistory} /></button>{showCardPaymentHistory && <div className="card-payment-history-list">{(data.cardPayments || []).map((payment) => <span key={payment.id}><small>{shortDate(payment.date)} · {accountMap.get(payment.fromAccountId)}</small><strong>+{money(payment.amount)} {tr('credit freed', 'de crédito liberado')}</strong></span>)}</div>}</div>}</div></> : <div className="credit-empty"><span>◇</span><div><strong>No credit cards yet</strong><small>Add your card limit and current used balance to start forecasting payments.</small></div><button type="button" onClick={() => setCardModal('card')}>Add credit card</button></div>}
         </section>
@@ -861,10 +957,10 @@ export default function Home() {
         </section>
 
         <section className="activity-panel panel" id="activity" data-reveal hidden={activeView !== 'activity'}>
-          <div className="section-heading"><div><p className="eyebrow">{currentTime.toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', { month: 'long' }).toUpperCase()}</p><h2>{tr('Cash flow', 'Flujo de caja')}</h2></div><div className="section-actions"><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Expense'); }}>+ {tr('Expense', 'Gasto')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Income'); }}>+ {tr('Income', 'Ingreso')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Transfer'); }}>+ {tr('Transfer', 'Transferencia')}</button></div></div>
+          <div className="section-heading"><div><p className="eyebrow">{currentTime.toLocaleDateString(language === 'es' ? 'es-EC' : 'en-US', { month: 'long' }).toUpperCase()}</p><h2>{tr('Cash flow', 'Movimientos del mes')}</h2></div><div className="section-actions"><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Expense'); }}>+ {tr('Add expense', 'Registrar gasto')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Income'); }}>+ {tr('Add income', 'Registrar ingreso')}</button><button type="button" onClick={() => { setEditingTransaction(null); setActiveAction('Transfer'); }}>+ {tr('Transfer money', 'Transferir dinero')}</button></div></div>
           <div className="activity-grid">
             <div className="chart-wrap" aria-label="Monthly spending by category">
-              <div className="chart-total"><span>{tr('Spent this month', 'Gastado este mes')}</span><strong>{money(data.spent)}</strong></div>
+              <div className="chart-total"><span>{tr('Spent this month', 'Total gastado este mes')}</span><strong>{money(data.spent)}</strong></div>
               {categorySpending.length ? <>
                 <div className="category-chart">{categorySpending.map((item, index) => {
                   const percentage = data.spent ? (item.amount / data.spent) * 100 : 0;
@@ -876,7 +972,7 @@ export default function Home() {
                 <div className="chart-insight"><span>↗</span><p><strong>{tr(`${categorySpending[0].category} is your largest category.`, `${transactionCategory(categorySpending[0].category)} es tu categoría principal.`)}</strong><small>{tr('It represents', 'Representa')} {((categorySpending[0].amount / data.spent) * 100).toFixed(0)}% {tr("of this month's spending.", 'del gasto de este mes.')}</small></p></div>
               </> : <div className="chart-empty"><strong>{tr('No expenses yet', 'Aún no hay gastos')}</strong><small>{tr('Your category chart will appear after your first expense.', 'El gráfico aparecerá después de registrar tu primer gasto.')}</small></div>}
             </div>
-            <div className="activity-list"><form className="activity-date-filter" onSubmit={(event) => { event.preventDefault(); setActivityStartDate(activityDraftStartDate); setActivityEndDate(activityDraftEndDate); setActivityPage(1); }}><span><small>{tr('FROM', 'DESDE')}</small><input type="date" value={activityDraftStartDate} max={activityDraftEndDate} onChange={(event) => { const value = event.target.value; if (!value) return; setActivityDraftStartDate(value); if (value > activityDraftEndDate) setActivityDraftEndDate(value); }}/></span><span><small>{tr('TO', 'HASTA')}</small><input type="date" value={activityDraftEndDate} min={activityDraftStartDate} onChange={(event) => { const value = event.target.value; if (!value) return; setActivityDraftEndDate(value); if (value < activityDraftStartDate) setActivityDraftStartDate(value); }}/></span><span className="activity-filter-actions"><button type="submit">{tr('Apply', 'Aplicar')}</button><button type="button" onClick={() => { setActivityDraftStartDate(today); setActivityDraftEndDate(today); setActivityStartDate(today); setActivityEndDate(today); setActivityPage(1); }}>{tr('Today', 'Hoy')}</button></span><b>{filteredActivity.length} {tr(filteredActivity.length === 1 ? 'movement' : 'movements', filteredActivity.length === 1 ? 'movimiento' : 'movimientos')}</b></form>
+            <div className="activity-list"><div className="activity-advanced-filter"><label><small>{tr('SEARCH', 'BUSCAR')}</small><input value={activitySearch} onChange={(event) => { setActivitySearch(event.target.value); setActivityPage(1); }} placeholder={tr('Description, account or method', 'Descripción, cuenta o método')}/></label><label><small>{tr('ACCOUNT', 'CUENTA')}</small><select value={activityAccountFilter} onChange={(event) => { setActivityAccountFilter(event.target.value); setActivityPage(1); }}><option value="">{tr('All accounts', 'Todas las cuentas')}</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label><label><small>{tr('CATEGORY', 'CATEGORÍA')}</small><select value={activityCategoryFilter} onChange={(event) => { setActivityCategoryFilter(event.target.value); setActivityPage(1); }}><option value="">{tr('All categories', 'Todas las categorías')}</option>{[...new Set(data.transactions.map((item) => item.category).filter(Boolean))].map((category) => <option key={category!} value={category!}>{transactionCategory(category!)}</option>)}</select></label><label><small>{tr('TYPE', 'TIPO')}</small><select value={activityTypeFilter} onChange={(event) => { setActivityTypeFilter(event.target.value); setActivityPage(1); }}><option value="">{tr('All movements', 'Todos los movimientos')}</option><option value="expense">{tr('Expenses', 'Gastos')}</option><option value="income">{tr('Income', 'Ingresos')}</option><option value="transfer">{tr('Transfers', 'Transferencias')}</option></select></label></div><form className="activity-date-filter" onSubmit={(event) => { event.preventDefault(); setActivityStartDate(activityDraftStartDate); setActivityEndDate(activityDraftEndDate); setActivityPage(1); }}><span><small>{tr('FROM', 'DESDE')}</small><input type="date" value={activityDraftStartDate} max={activityDraftEndDate} onChange={(event) => { const value = event.target.value; if (!value) return; setActivityDraftStartDate(value); if (value > activityDraftEndDate) setActivityDraftEndDate(value); }}/></span><span><small>{tr('TO', 'HASTA')}</small><input type="date" value={activityDraftEndDate} min={activityDraftStartDate} onChange={(event) => { const value = event.target.value; if (!value) return; setActivityDraftEndDate(value); if (value < activityDraftStartDate) setActivityDraftStartDate(value); }}/></span><span className="activity-filter-actions"><button disabled={activityDatesApplied} type="submit">{tr('Apply filter', 'Filtrar')}</button><button className={activityMonthActive ? 'active' : ''} aria-pressed={activityMonthActive} type="button" onClick={() => { setActivityDraftStartDate(today.slice(0, 8) + '01'); setActivityDraftEndDate(today); setActivityStartDate(today.slice(0, 8) + '01'); setActivityEndDate(today); setActivityPage(1); }}>{tr('This month', 'Este mes')}</button><button className={activityTodayActive ? 'active' : ''} aria-pressed={activityTodayActive} type="button" onClick={() => { setActivityDraftStartDate(today); setActivityDraftEndDate(today); setActivityStartDate(today); setActivityEndDate(today); setActivityPage(1); }}>{tr('Today', 'Hoy')}</button><button type="button" disabled={!filteredActivity.length} onClick={exportFilteredActivity}>{tr('Export', 'Exportar')}</button></span><b>{filteredActivity.length} {tr(filteredActivity.length === 1 ? 'movement' : 'movements', filteredActivity.length === 1 ? 'movimiento' : 'movimientos')}</b></form>
               {activity.length ? activity.map((item) => {
                 const account = item.type === 'income' ? accountMap.get(item.to_account_id || '') : accountMap.get(item.from_account_id || '');
                 const prefix = item.type === 'income' ? '+' : item.type === 'transfer' ? '⇄ ' : '−';
@@ -930,14 +1026,14 @@ export default function Home() {
                 <label><span>{tr('Description', 'Descripción')}</span><input name="description" required autoFocus defaultValue={editingTransaction ? transactionDescription(editingTransaction.description) : editingRecurring?.name || ''} placeholder={activeAction === 'Recurring' && recurringFlow === 'income' ? tr('Monthly salary', 'Sueldo mensual') : activeAction === 'Transfer' ? tr('For example: Transfer to Pichincha', 'Por ejemplo: Transferencia a Pichincha') : tr('What was it for?', '¿Para qué fue?')} /></label>
                 <div className="field-row"><label><span>{tr('Amount', 'Monto')}</span><input name="amount" required inputMode="decimal" type="text" defaultValue={editingTransaction?.amount || editingRecurring?.amount || (activeAction === 'Recurring' && recurringFlow === 'income' ? '1300' : '')} placeholder="$0,00" /></label><label><span>{activeAction === 'Recurring' ? recurringFlow === 'income' ? tr('Next income date', 'Próxima fecha de ingreso') : tr('Next due date', 'Próxima fecha de pago') : tr('Movement date', 'Fecha del movimiento')}</span><input name="date" required type="date" defaultValue={editingTransaction?.date || editingRecurring?.next_due_date || today} /></label></div>
                 {activeAction === 'Income' || (activeAction === 'Recurring' && recurringFlow === 'income') ? (
-                  <label><span>{tr('To account', 'Cuenta de destino')}</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || editingRecurring?.pay_from_account_id || ''}><option value="" disabled>{tr('Select destination', 'Selecciona un destino')}</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                  <label><span>{tr('To account', 'Cuenta de destino')}</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || editingRecurring?.pay_from_account_id || ''}><option value="" disabled>{tr('Select destination', 'Selecciona un destino')}</option><GroupedAccountOptions accounts={data.accounts} language={language}/></select></label>
                 ) : (
-                  <label><span>{activeAction === 'Recurring' ? tr('Pay from', 'Pagar desde') : tr('From account', 'Cuenta de origen')}</span><select name="fromAccountId" required defaultValue={editingTransaction?.from_account_id || editingRecurring?.pay_from_account_id || ''}><option value="" disabled>{tr('Select an account', 'Selecciona una cuenta')}</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name} · {money(account.balance)}</option>)}</select></label>
+                  <label><span>{activeAction === 'Recurring' ? tr('Pay from', 'Pagar desde') : tr('From account', 'Cuenta de origen')}</span><select name="fromAccountId" required defaultValue={editingTransaction?.from_account_id || editingRecurring?.pay_from_account_id || ''}><option value="" disabled>{tr('Select an account', 'Selecciona una cuenta')}</option><GroupedAccountOptions accounts={data.accounts} language={language} includeBalance/></select></label>
                 )}
-                {activeAction === 'Transfer' && <label><span>{tr('To account', 'Cuenta de destino')}</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || ''}><option value="" disabled>{tr('Select destination', 'Selecciona un destino')}</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>}
+                {activeAction === 'Transfer' && <label><span>{tr('To account', 'Cuenta de destino')}</span><select name="toAccountId" required defaultValue={editingTransaction?.to_account_id || ''}><option value="" disabled>{tr('Select destination', 'Selecciona un destino')}</option><GroupedAccountOptions accounts={data.accounts} language={language}/></select></label>}
                 {activeAction === 'Income' && <label><span>{tr('Income type', 'Tipo de ingreso')}</span><select name="category" required defaultValue={editingTransaction?.category || ''}><option value="" disabled>{tr('Select an income type', 'Selecciona un tipo de ingreso')}</option>{['Transfer Received', 'Salary', 'Interest', 'Refund', 'Other'].map((value) => <option key={value} value={value}>{categoryLabels[value]}</option>)}</select></label>}
                 {activeAction === 'Recurring' && recurringFlow === 'income' && <input type="hidden" name="category" value="Salary" />}
-                {(activeAction === 'Expense' || (activeAction === 'Recurring' && recurringFlow === 'expense')) && <label><span>{tr('Category', 'Categoría')}</span><select name="category" required defaultValue={editingTransaction?.category || editingRecurring?.category || ''}><option value="" disabled>{tr('Select a category', 'Selecciona una categoría')}</option>{['Food', 'Transportation', 'Shopping', 'Personal', 'Alcohol', 'Entertainment', 'Subscriptions', 'Utilities', 'Home', 'Health', 'Insurance', 'Debt', 'Other'].map((value) => <option key={value} value={value}>{categoryLabels[value]}</option>)}</select></label>}
+                {(activeAction === 'Expense' || (activeAction === 'Recurring' && recurringFlow === 'expense')) && <label><span>{tr('Category', 'Categoría')}</span><select name="category" required defaultValue={editingTransaction?.category || editingRecurring?.category || ''}><option value="" disabled>{tr('Select a category', 'Selecciona una categoría')}</option>{[...new Set(['Food', 'Transportation', 'Shopping', 'Personal', 'Alcohol', 'Entertainment', 'Subscriptions', 'Utilities', 'Home', 'Health', 'Insurance', 'Debt', 'Other', ...customCategories])].map((value) => <option key={value} value={value}>{categoryLabels[value] || value}</option>)}</select></label>}
                 {activeAction === 'Recurring' && recurringFlow === 'expense' && <div className="shared-payment-fields"><label><span>{tr('Shared payment', 'Pago compartido')}</span><select name="sharedPayment" value={sharedPaymentEnabled ? 'true' : 'false'} onChange={(event) => setSharedPaymentEnabled(event.target.value === 'true')}><option value="false">{tr('No — I pay it alone', 'No — lo pago solo')}</option><option value="true">{tr('Yes — other people reimburse me', 'Sí — otras personas me reembolsan')}</option></select></label>{sharedPaymentEnabled && <><label><span>{tr('People who reimburse you', 'Personas que te reembolsan')}</span><input name="sharedParticipants" required defaultValue={editingRecurring?.sharedMembers?.map((member) => member.name).join(', ') || ''} placeholder="Alanis, Ángel, Buho, Melva"/><small className="field-help">{tr('Separate names with commas. Do not include yourself.', 'Separa los nombres con comas. No te incluyas a ti.')}</small></label><label><span>{tr('Amount paid by each person', 'Valor que paga cada persona')}</span><input name="sharedShareAmount" required type="text" inputMode="decimal" defaultValue={editingRecurring?.sharedMembers?.[0]?.amount || ''} placeholder="4,80"/><small className="field-help">{tr('The main amount above must be the full debit, including your share.', 'El monto principal de arriba debe ser el débito completo, incluida tu parte.')}</small></label></>}</div>}
                 {activeAction !== 'Income' && !(activeAction === 'Recurring' && recurringFlow === 'income') && <label><span>{tr('Payment method', 'Método de pago')}</span><select name="paymentMethod" required defaultValue={editingTransaction?.payment_method || editingRecurring?.payment_method || (activeAction === 'Transfer' ? 'Bank Transfer' : '')}><option value="" disabled>{tr('Select a method', 'Selecciona un método')}</option>{['Debit Card', 'Bank Transfer', 'Deuna', 'Automatic Debit', 'Cash'].map((value) => <option key={value} value={value}>{paymentMethodLabels[value]}</option>)}</select></label>}
                 {error && <small className="form-error" role="alert">{localizedError(error)}</small>}
@@ -962,7 +1058,7 @@ export default function Home() {
                 <div className="field-row"><label><span>{tr('Outstanding balance', 'Saldo pendiente')}</span><input name="outstandingBalance" required type="text" inputMode="decimal" placeholder="2365,14" /></label><label><span>{tr('Monthly installment', 'Cuota mensual')}</span><input name="installment" required type="text" inputMode="decimal" placeholder="113,69" /></label></div>
                 <label><span>{tr('Next payment', 'Próximo pago')}</span><input name="nextDueDate" required type="date" /></label>
                 <div className="field-row"><label><span>{tr('Installments paid', 'Cuotas pagadas')}</span><input name="paidInstallments" required type="number" min="0" placeholder="23" /></label><label><span>{tr('Total installments', 'Total de cuotas')}</span><input name="totalInstallments" required type="number" min="1" placeholder="48" /></label></div>
-                <label><span>{tr('Pay from account (optional)', 'Pagar desde una cuenta (opcional)')}</span><select name="payFromAccountId" defaultValue=""><option value="">{tr('Choose later', 'Elegir después')}</option>{data.accounts.map((account) => <option key={account.id} value={account.id}>{account.name}</option>)}</select></label>
+                <label><span>{tr('Pay from account (optional)', 'Pagar desde una cuenta (opcional)')}</span><select name="payFromAccountId" defaultValue=""><option value="">{tr('Choose later', 'Elegir después')}</option><GroupedAccountOptions accounts={data.accounts} language={language}/></select></label>
               </> : cardModal === 'card' ? <>
                 <label><span>{tr('Card name', 'Nombre de la tarjeta')}</span><input name="name" required autoFocus placeholder="Visa Gold" /></label>
                 <label><span>{tr('Bank', 'Banco')}</span><select name="bank" required defaultValue="Pichincha"><option>Pichincha</option><option>Produbanco</option><option>Pacifico</option><option>Guayaquil</option></select></label>
@@ -974,7 +1070,7 @@ export default function Home() {
                 <label><span>{tr('Credit card', 'Tarjeta de crédito')}</span><select name="creditCardId" required defaultValue={selectedCardId || data.creditCards[0]?.id || ''}>{data.creditCards.map((card) => <option key={card.id} value={card.id}>{card.name}</option>)}</select></label>
                 <label><span>{tr('Description', 'Descripción')}</span><input name="description" required autoFocus placeholder={tr('What did you buy?', '¿Qué compraste?')} /></label>
                 <div className="field-row"><label><span>{tr('Amount', 'Monto')}</span><input name="amount" required type="text" inputMode="decimal" /></label><label><span>{tr('Date', 'Fecha')}</span><input name="date" required type="date" defaultValue={today} /></label></div>
-                <label><span>{tr('Category', 'Categoría')}</span><select name="category" required defaultValue=""><option value="" disabled>{tr('Select a category', 'Selecciona una categoría')}</option>{['Food', 'Transportation', 'Shopping', 'Personal', 'Health', 'Entertainment', 'Other'].map((value) => <option key={value} value={value}>{categoryLabels[value]}</option>)}</select></label>
+                <label><span>{tr('Category', 'Categoría')}</span><select name="category" required defaultValue=""><option value="" disabled>{tr('Select a category', 'Selecciona una categoría')}</option>{[...new Set(['Food', 'Transportation', 'Shopping', 'Personal', 'Health', 'Entertainment', 'Other', ...customCategories])].map((value) => <option key={value} value={value}>{categoryLabels[value] || value}</option>)}</select></label>
                 <div className="field-row"><label><span>{tr('Installments', 'Cuotas')}</span><select name="installmentMonths" defaultValue="1"><option value="1">{tr('Current — one payment', 'Corriente — un pago')}</option>{[2, 3, 6, 9, 12, 18, 24, 36].map((months) => <option key={months} value={months}>{months} {tr('months', 'meses')}</option>)}</select></label><label><span>{tr('Interest', 'Interés')}</span><select name="withInterest" defaultValue="false"><option value="false">{tr('Without interest', 'Sin intereses')}</option><option value="true">{tr('With interest', 'Con intereses')}</option></select></label></div>
               </>}
               {error && <small className="form-error" role="alert">{localizedError(error)}</small>}

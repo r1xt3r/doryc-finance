@@ -2,11 +2,12 @@ import LogoMark from './LogoMark';
 import type { Language } from '../../lib/useLanguage';
 import type { ReactNode } from 'react';
 
-export type DashboardView = 'overview' | 'accounts' | 'payments' | 'credit' | 'people' | 'activity';
+export type DashboardView = 'overview' | 'accounts' | 'savings' | 'payments' | 'credit' | 'people' | 'activity';
 
 const navigation: Array<[DashboardView, ReactNode, string, string]> = [
   ['overview', <svg key="home" viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V20h-5v-5H9v5H4Z"/></svg>, 'Overview', 'Resumen'],
   ['accounts', <svg key="accounts" viewBox="0 0 24 24"><path d="M4 7h16v12H4zM7 10h4m-4 3h7m-7 3h5M6 4h12v3"/></svg>, 'Accounts', 'Cuentas'],
+  ['savings', <svg key="savings" viewBox="0 0 24 24"><path d="M5 12.5c0-4 3.2-7 8-7 3.7 0 6.5 2 6.5 5.3V17H17l-1 3h-3l-.7-2H9.5l-1 2h-3l.4-3.1A6 6 0 0 1 5 12.5Z"/><path d="M12 5.5V3m-2.5 5h4m6 3h2"/></svg>, 'Savings', 'Ahorros'],
   ['payments', <svg key="payments" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2M9 4V2m6 2V2"/></svg>, 'Payments', 'Pagos'],
   ['credit', <svg key="credit" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18m-14 5h4"/></svg>, 'Credit & loans', 'Crédito y préstamos'],
   ['people', <svg key="people" viewBox="0 0 24 24"><circle cx="8" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M3 19c.5-3.2 2.2-5 5-5s4.5 1.8 5 5m1-4c2.7-.3 4.5 1 5 3.5"/></svg>, 'People', 'Personas'],
