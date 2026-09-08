@@ -949,3 +949,10 @@ button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .dashboard-nav button:nth-child(7) i{color:#b49cff;background:#282238}
   .dashboard-nav button:nth-child(7).active i{background:#b49cff!important;color:#171222}
 }
+
+@media(max-width:520px){
+  .sidebar{height:calc(66px + env(safe-area-inset-bottom,0px));padding:7px 8px calc(7px + env(safe-area-inset-bottom,0px));overflow:visible}
+  .sidebar nav{height:52px;min-height:52px;align-items:center;overflow-x:auto;overflow-y:visible}
+  .dashboard-nav button{height:48px;align-self:center}
+  .dashboard{padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))}
+}
